@@ -36,6 +36,7 @@ As said I will assume some things here, your setup might be different but this w
 5. The "static" part of the DNS is taken care elsewhere (either by some ISP or by your redundant setup with authoritative servers on different networks... isn't it?).
 6. I have two sites answering the requests, you could have more and it is pretty simple to take that in count, but the point here is not having 100 nodes for load handling, is having more than one site for redundancy, maybe 3 makes still sense, four if definitively overshooting.
 7. I am handling reasonable requests in a reasonable world. Up to 5-10 seconds of unavailability to fail over from one site to the other is considered reasonable: automated processes should have retry/timeout policies and humans can deal with it: even Facebook sometimes freezes, if reloading the page after a few seconds work the users lives with it and the "failure" is not even noticed in the records.
+8. I assume that youir machines/nodes can be reached, if your hosting site has firewall policies in place ensure that, at least, you get inbound TCP connections on ports 80, 443 and 42, you can connect to external TCP (including smtp, submission, etc...) and that you get UPD requests on port 42 and can reply. All this is far from obvious, expecially on Hetzner.
 
 # Prerequisites.
 
@@ -59,6 +60,38 @@ On each machine install:
 
 IMPORTANT note about bash: For my own convenience I install a static link version of bash in /bin/bash which gets into /etc/shells and the normal dynamic link one in /usr/local/bin/bash as the port does; to do so I get into /usr/ports/shells/bash, make install, ask for static link in the configuration, cp /usr/local/bin/bash /bin/bash, make distclean, and finally make install with the default configuration; explaining why I want a static link bash in /bin/bash is beyond the scope of this note, if you don't like it just edit all the scripts I provide changing the first line from "#! /bin/bash" into "#! /wherever/is/located/your/bash".
 
+# Set up DNS
+
+In normal operation we want requests for api.domain.tld to land on SOME machine/site, in our example either alpha.domain.tld o beta.domain.tld; if either fails (that is: becomes unreachable) we want all the requests to land on the reachable one(s).
+I have api.domain.tld pointing as CNAME to api.pool.domain.tld, note that therefore YOU CANNOT have something else pointing as a CNAME to api.domain.tld on its behalf; then the zone pool.domain.tld is delegated to two nameservers which are... the nodes themselves.
+At this point when a client asks for api.domaind.tld it becomes api.pool.domain.tld and the DNS query goes to alpha.domain.tld and beta.domain.tld, now say I am alpha and someone out there asks me for api.pool.domain.tld:
+1. I should always respond with my own IP, if the client could reach the DNS running here it can also reach the service (and we are working only on reachability/site redundancy, services which go down are expected to be handled by other means)
+2. IF i can reach the service on beta.domain.tld then I suppose that it is alive, and I should put in the reply also the IP of beta; so we balance the load under normal operation
+
+Thus, first of all set up the proper records in the main domain.tld zone to that api points to api.pool and the zone pool is delegated to all nodes:
+```
+alpha.domain.tld. 60 A 1.2.3.4
+beta.domain.tld. 60 A 5.6.7.8
+api.domain.tld. 600 CNAME api.pool.domain.tld.
+pool.domain.tld. 10 NS alpha.domain.tld.
+pool.domain.tld. 10 NS beta.domain.tld.
+```
+
+Then on each node install knot (portinstall knot3); edit the pertinent files from this directory and place them into /usr/local/etc/knot/knot.conf and /var/db/knot/pool.domain.tld.zone; add a line in /etc.rc.conf stating knot_enable="YES" and go with "service knot start".
+
+If everything is ok on any machine of the world you will have this working:
+```
+blackye@undici ~ % host api.domain.tld
+api.domain.tld is an alias for api.pool.domain.tld.
+api.pool.domain.tld has address 1.2.3.4
+api.pool.domain.tld has address 5.6.7.8
+blackye@undici ~ % 
+```
+
+
+
+
+
 # Set up SSL certificates
 
 Doing DNS load balancing with SSL requests is a bit tricky: you need to have multiple hosts answering from different IP addresses for the same URI, you need the sertificates to be valid but also to be kept up to date and... most ACME toolchains do not support this very well.
@@ -79,5 +112,25 @@ To be clear on the last point: if you run multiple SSL endpoints at the same sit
 We have to look better at that request and that magic answer on /.well-known/acme-challenge.
 
 In a nutshell:
-1. When you create your "account" with the SSL issuer a private key is generated
+1. When you create your "account" with the SSL issuer a private key is generated with a corresponding public key
+2. An SHA256 hash of the public key is generated, this is going to be the "Thumbprint" of the account
+3. When you try to generate or renew a certificate, Let's encrypt will generate a random "Token" and ask (one of) your servers for http://api.domain.tld/.well-known/acme-challenge/Token
+4. Your server should respond with a plain text 200 answer containing Token.Thumbprint
+
+That's it: The random token contained in the brequest followed by the thumbprint, separated by a dot!
+
+All we have to do to have the first certificate on one machine is create the account on that machine, say alpha, ("certbot register" and answer the requested information), then gather the Thumbprint ("certbot show_account"), it shows something like "Account Thumbprint: 1234-blaBlaBla-SnafuzBro-Gne123GnegnegnGne", add these lines to haproxy.conf on ALL sites/machines:
+1. In the global section: "setenv ACCOUNT_THUMBPRINT '1234-blaBlaBla-SnafuzBro-Gne123GnegnegnGne'"
+2. In the frontend section listening on port 80: "http-request return status 200 content-type text/plain lf-string "%[path,field(-1,/)].${ACCOUNT_THUMBPRINT}\n" if { path_reg '^/.well-known/acme-challenge/[-_a-zA-Z0-9]+$' }"
+
+At this point we can create the SSL certificate for machine alpha, but we have to adopt a few tricks:
+1. What we are doing is called "stateless mode" challenge, and certbot does not directly support stateless mode; however it supports a "standalone" mode in which certbot itself runs an http server to handle the resuest; all is needed is run certbot in standalone mode and have it bind in some free port (say 9080) on 127.0.0.1, it will never get any request but haproxy will do the job, the magic is: "--standalone --preferred-challenges http --http-01-address 127.0.0.1 --http-01-port 9080"
+2. Let's encrypt limits the number of renewals on the SAME certificate, this might create issues if you renew frequently, the "same certificate" is defined by having the same set of domain nnames, so we want each certificate to be valid for BOTH "api.domain.tld" AND "nodename.domain.tld"; Let's encrypt will challenge both (one will land on the same machine, api will land on some random machine/site, this is not a problem because the Thumbprint is the same and the challenge will succeed for both).
+3. Please note that the Thumbprint is linked to the ACCOUNT, and testing with --dry-run uses a separate account on a different server; you can see the Thumbprint of the test/dryrun account with "certbot show_account --staging" and it is different; as we manually placed the Thumbprint on haproxy fact is simple and clear: testing will "--dry-run" will NOT work. Live with it.
+
+Thus, this is the magic to have our certificate on alpha:
+```
+certbot certonly --standalone --preferred-challenges http --http-01-address 127.0.0.1 --http-01-port 9080 -d alpha.domain.tld,api.domain.tld
+```
+
 
