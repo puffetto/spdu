@@ -68,7 +68,7 @@ At this point when a client asks for api.domaind.tld it becomes api.pool.domain.
 1. I should always respond with my own IP, if the client could reach the DNS running here it can also reach the service (and we are working only on reachability/site redundancy, services which go down are expected to be handled by other means)
 2. IF i can reach the service on beta.domain.tld then I suppose that it is alive, and I should put in the reply also the IP of beta; so we balance the load under normal operation
 
-Thus, first of all set up the proper records in the main domain.tld zone to that api points to api.pool and the zone pool is delegated to all nodes:
+Thus, first of all set up the proper records in the main domain.tld zone to that api points to api.pool and the zone pool is delegated to all nodes, this does not require any dynamic change but I still keep the TTLs short, because I like it this way ;) :
 ```
 alpha.domain.tld. 60 A 1.2.3.4
 beta.domain.tld. 60 A 5.6.7.8
@@ -77,7 +77,12 @@ pool.domain.tld. 10 NS alpha.domain.tld.
 pool.domain.tld. 10 NS beta.domain.tld.
 ```
 
-Then on each node install knot (portinstall knot3); edit the pertinent files from this directory and place them into /usr/local/etc/knot/knot.conf and /var/db/knot/pool.domain.tld.zone; add a line in /etc.rc.conf stating knot_enable="YES" and go with "service knot start".
+Then on each node install knot (portinstall knot3); edit the pertinent files from this repository and place them into /usr/local/etc/knot/knot.conf and /var/db/knot/pool.domain.tld.zone; add a line in /etc.rc.conf stating knot_enable="YES" and go with "service knot start".
+
+Take note that the last field in the SOA record into pool.domain.tld.zone is ONLY used as "negative response TTL", meaning that should a server respond that there is no record for the given request this answer will be cached for this number of seconds (this happens, in example, for the AAAA request, as we do not have IPv6 addresses in this example), so it should essentially be the same as the TTL in the A records (in my case 5 or 10 seconds).
+Everything else in the SOA recordo is IGNORED in our setup, as we do not use DNS zone transfers, it MUST be ignored as nothing in the RFCs allow any use of that information. 
+Side note: Yes: you can have more than one "master" server for a zone; DNS itself, in the name resolution process, does not even have an idea about what a "master" and a "slave" server is, there are only "uathoritative" and "cache" servers; all our nodes are "authoritative servers", the resolution protocol is politically correct, stuff like "serial", "mname", "rname", "refresh", "retry" and "expire" MUST be ignored by clients, except the saide use for "expire" (time to cache ythe negative "No records" reply"); the field "aname" *might* bne usde by an human to contact the responsible for the doiman... would you expect a reply? :D
+That's it: you can have more than an "authoritative" server for a zone, as the concept of "authoroitaive" applies only to DNA zone transfers (which you are not obliged to use) and all the content of the "SOA" record is bullshit besides the last field ("[negative] expire").
 
 If everything is ok on any machine of the world you will have this working:
 ```
@@ -87,6 +92,8 @@ api.pool.domain.tld has address 1.2.3.4
 api.pool.domain.tld has address 5.6.7.8
 blackye@undici ~ % 
 ```
+
+At this point we are done with the "normal operations", we have to handle site failures.
 
 
 
