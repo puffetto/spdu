@@ -1,0 +1,8 @@
+;; Edit this file with your correct names and IP addresses, 
+;; then put it into /var/db/knot/ on each node.
+pool.domain.tld.     	10	SOA	pool.domain.tld. admin.domain.tld. 2023051700 3600 600 86400 5
+pool.domain.tld.     	10	NS	alpha.domain.tld.
+pool.domain.tld.     	10	NS	beta.domain.tld.
+api.pool.domain.tld. 	5	A	1.2.3.4
+api.pool.domain.tld. 	5	A	5.6.7.8
+
