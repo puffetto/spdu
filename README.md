@@ -1,32 +1,32 @@
-## spdu
+# spdu
 Service Probe and DNS Updater
 
 This toolkit provides example configuration files and scripts aimed at deploying a multi-site service using DNS to (roughly) balance load and implement automatic failover.
 The examples assume that you run your services on FreeBSD and shield them behing HAProxy, but the concepts, examples and escripts can be easily adapted to different setups.
 
-# The problem.
+### The problem.
 
 Sites DO have failures. It is quite common to put services behing load balancers and failover handlers, in example through HAProxy, but at the end of the day, unless you are Google or Facebook and you are implementing multisite redundancy at IP/routing level (that is: a fake multicast obtained playing with BGP), you still have ONE IP address answering to your service requests from ONE site.
 You can do a very good job in having that IP served by something extremely stable (like HAProxy) and then spread the requests to redundant backends, but when that IP becomes unreachable your service will be unreachable.
 Experience says that this is, after human error, the second reason for services going down. It can be a datacenter power failure, an ISP's broken routing, your provider suspending the service because PayPal failed to promptly process a payment, a scheduled maintenance for which you oversaw the email notification, whatever: it happens, and it happens quite often.
 
-# The solution.
+### The solution.
 
 There is only one way to work around this (besides being Google, but if you are reading this I bet you are not): have multiple sites answering the requests, from different IP addresses, from different networks, managed by differenbt providers, deployed in different sites/datacenters.
 Redundancy, and the absence of Single Points of Failure, is the mother of availability. 
 One site with four-nines availability is (unexpectedly) down for 8 hours per year, and this may hurt; five nines is still five minutes per year and this might or might not be ok; on the other side two redundant sites which are COMPLETELY independent and have *only* 99,9% availability are expected to be both down for less than 30 seconds per year; two sites at four nines are already in the realm of milliseconds per year of unavailability.
 To do this you have to deal with two issues: your clients must be able to find the IP of the site able to respond in a given moment and they have to be able to verify that this is you (yeah... SSL), here you will find some advice and some scripts to implement it.
 
-# The goals
+### The goals
 
 As security matters as much as availability I have some additional goals in mind in what follows:
 - The sites must be independent: no machine at a site can write stuff on machines at another nor can read private stuff there
 - No third "robot" can have private keys to access anything at all the sites
 - Nothing can write the main DNS zone
 
-## HOWTO
+# HOWTO
 
-# Foreword.
+### Introduction.
 
 As said I will assume some things here, your setup might be different but this will not change the principles:
 1. We are talking about HTTP services (being them pages, SOAP, REST, ... whatever), over SSL, stateless.
@@ -38,7 +38,7 @@ As said I will assume some things here, your setup might be different but this w
 7. I am handling reasonable requests in a reasonable world. Up to 5-10 seconds of unavailability to fail over from one site to the other is considered reasonable: automated processes should have retry/timeout policies and humans can deal with it: even Facebook sometimes freezes, if reloading the page after a few seconds work the users lives with it and the "failure" is not even noticed in the records.
 8. I assume that youir machines/nodes can be reached, if your hosting site has firewall policies in place ensure that, at least, you get inbound TCP connections on ports 80, 443 and 42, you can connect to external TCP (including smtp, submission, etc...) and that you get UPD requests on port 42 and can reply. All this is far from obvious, expecially on Hetzner.
 
-# Prerequisites.
+### Prerequisites.
 
 In the examples:
 a. My domain is domain.tld and is hosted somewhere I can edit the domain zone
@@ -60,7 +60,7 @@ On each machine install:
 
 IMPORTANT note about bash: For my own convenience I install a static link version of bash in /bin/bash which gets into /etc/shells and the normal dynamic link one in /usr/local/bin/bash as the port does; to do so I get into /usr/ports/shells/bash, make install, ask for static link in the configuration, cp /usr/local/bin/bash /bin/bash, make distclean, and finally make install with the default configuration; explaining why I want a static link bash in /bin/bash is beyond the scope of this note, if you don't like it just edit all the scripts I provide changing the first line from "#! /bin/bash" into "#! /wherever/is/located/your/bash".
 
-# Set up DNS
+### Set up DNS
 
 In normal operation we want requests for api.domain.tld to land on SOME machine/site, in our example either alpha.domain.tld o beta.domain.tld; if either fails (that is: becomes unreachable) we want all the requests to land on the reachable one(s).
 I have api.domain.tld pointing as CNAME to api.pool.domain.tld, note that therefore YOU CANNOT have something else pointing as a CNAME to api.domain.tld on its behalf; then the zone pool.domain.tld is delegated to two nameservers which are... the nodes themselves.
@@ -99,7 +99,7 @@ At this point we are done with the "normal operations", we have to handle site f
 
 
 
-# Set up SSL certificates
+### Set up SSL certificates
 
 Doing DNS load balancing with SSL requests is a bit tricky: you need to have multiple hosts answering from different IP addresses for the same URI, you need the sertificates to be valid but also to be kept up to date and... most ACME toolchains do not support this very well.
 In example Let's Encrypt and certbot can do it but.. are not designed to do it!
