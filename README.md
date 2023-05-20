@@ -41,16 +41,16 @@ As said I will assume some things here, your setup might be different but this w
 ### Prerequisites.
 
 In the examples:
-a. My domain is domain.tld and is hosted somewhere I can edit the domain zone
-b. I will create a dedicated zone called "pool.domain.tld"
-c. I have two "sites" answering at IP addresses 1.2.3.4 and 5.6.7.8
-d. The two machines are named alpha.domain.tld (1.2.3.4) and beta.domain.tld (5.6.7.8)
-e. De facto the two "sites" are two machines each running "everything" (HAProxy, SSL stuff, services, DNS, ...)
-f. The actual services are five daemons listening on local address at ports 4441-4445
-g. I want to respond to calls to https://api.domain.tld/something that is: our "redundant" hostname is api.domain.tld using standard ports (80 plan, 443 SSL).
-h. I keep by TTLs quite short (usually seconds)
+1. My domain is domain.tld and is hosted somewhere I can edit the domain zone
+2. I will create a dedicated zone called "pool.domain.tld"
+3. I have two "sites" answering at IP addresses 1.2.3.4 and 5.6.7.8
+4. The two machines are named alpha.domain.tld (1.2.3.4) and beta.domain.tld (5.6.7.8)
+5. De facto the two "sites" are two machines each running "everything" (HAProxy, SSL stuff, services, DNS, ...)
+6. The actual services are five daemons listening on local address at ports 4441-4445
+7. I want to respond to calls to https://api.domain.tld/something that is: our "redundant" hostname is api.domain.tld using standard ports (80 plan, 443 SSL).
+8. I keep by TTLs quite short (usually seconds)
 
-The point on the above "e." is that, again, we are not talking about load scalability or about service probing here, we are talking about site redundancy, and only that.
+The point on the above "5." is that, again, we are not talking about load scalability or about service probing here, we are talking about site redundancy, and only that.
 In your actual setup you might have 100 computing nodes behind the IP at each site, have a pool of dedicated HAProxy machines with hardware balancers behind them, you might have a dedicated machine on each side just for the DNS: nothing protects you against the site going down.
 What remains your responsibility in this setup is everything that is within the site: I assume that "if some service at the site [machine] is down the entire site [machine] is down", I assume that you have your ways to keep the services up and responsive IF the site [machine] is up and reachable, nothing here probes the single services.
 
