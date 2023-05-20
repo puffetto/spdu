@@ -47,7 +47,7 @@ c. I have two "sites" answering at IP addresses 1.2.3.4 and 5.6.7.8
 d. The two machines are named alpha.domain.tld (1.2.3.4) and beta.domain.tld (5.6.7.8)
 e. De facto the two "sites" are two machines each running "everything" (HAProxy, SSL stuff, services, DNS, ...)
 f. The actual services are five daemons listening on local address at ports 4441-4445
-g. I want to respond to calls to https://api.domain.tld/something
+g. I want to respond to calls to https://api.domain.tld/something that is: our "redundant" hostname is api.domain.tld using standard ports (80 plan, 443 SSL).
 h. I keep by TTLs quite short (usually seconds)
 
 The point on the above "e." is that, again, we are not talking about load scalability or about service probing here, we are talking about site redundancy, and only that.
@@ -60,9 +60,37 @@ On each machine install:
 
 IMPORTANT note about bash: For my own convenience I install a static link version of bash in /bin/bash which gets into /etc/shells and the normal dynamic link one in /usr/local/bin/bash as the port does; to do so I get into /usr/ports/shells/bash, make install, ask for static link in the configuration, cp /usr/local/bin/bash /bin/bash, make distclean, and finally make install with the default configuration; explaining why I want a static link bash in /bin/bash is beyond the scope of this note, if you don't like it just edit all the scripts I provide changing the first line from "#! /bin/bash" into "#! /wherever/is/located/your/bash".
 
+### Set up HAProxy
+
+You will want to use HAProxy on each node/site for a number of reasons:
+1. It's damn fast, efficient, stable, flexible, powerful and easy to set up
+2. It will take care of terminating SSL, so your daemons do not have to take care of it; and you can bet it is safer and more stable to do so than tring to do it yourself on the daemons
+3. It can balance the load on different on-site daemons, will take care of routing the requests to non-failed ones, etcetera
+
+Really: you might have each site run even an hardware load balancer, in that case have it spread the requests on multipla HAroxy instances (but I have seen no real world scenario where this makes sense on a single "site", once again unless you are Google or Facebook); you might have one single instance of your daemon servicing requests, but still having HAProxy "shield" it is a good idea (and, once again, I have seen no real world scenario in which it is a good idea to have a single instance of your daemon).
+
+Besides "portinstall haproxy" and placing a 'haproxy_enable="YES" all you need is a configuration file in /usr/local/etc/haproxy.conf, in this directory you find our example. Some tricks/notes on this configuration follow.
+
+As said I have five copies of my daemon listening all only on localhost on ports 4441-4445; all this configuration does is:
+1. Listen on public port 80 (and 443 with SSL) and balance the load on the five locale daemons
+2. Skip/ignore dead instances (note that they are all marked "check")
+3. Take care of SSL, after you uncomment the "`bind *:443 ssl crt...`" line (but read below before doing so)
+4. Implement a weak but effective cross-site/machine failover at layer 7
+
+Let me explain point 4 above.
+
+As said handling application level availability is beyond the scope of this note, however something very simple and quite effective can be done here as is easily done by HAProxy.
+The example setuo has two "listen" blocks, a listen block describes both a client listener and a backend pool of servers; the first block listens on standard 80 and 443 ports (for SSL) and routes the calls on the five daemons running locally on ports 4441-4445, each backend server is marked "check", meaning that HAProxy will periodically try to connect to the daemons to check if they are alive. HAProxy can perform much deeper and more accurate tests than just connecting, but you will have to look at its documentation for that.
+If some local daemon is dead HAProxy will skip it and route the requests to the remaining ones, if ALL of them are dead HAProxy (in our configuration) will use the backend listed in line `server... backup`, that is: connect using SSL to port 8080 of the %{OTHER} node and route requests there.
+We obviously neee each site to respond also on port 8080 to act as a "backup" for the other one; but we use a separate "listen" block (the one named "listen backup"), because we do not want requests on port 8080 to be routed back on port 8080 of the first node (this would create a loop, HAProxy has its own route prevention strategies, but it is a good idea to prevent triggering them).
+Practically: if all daemons on a machine are down but some is working on the other one and all the rest is working (network, routes, DNS; etc) the site will "gracefully" failover routing all the requests on the $OTHER site; using SSL as we do not want our ISPs see our traffic.
+
+To make the long story short: install haproxy and enable it, place the haproxy.conf file attached into /usr/local/etc on each node, edit properly the variables MYSELF, OTHER and COMMON, start it and read below about the variable THUMB and the lines containing "ssl" which are commented.
+
 ### Set up DNS
 
 In normal operation we want requests for api.domain.tld to land on SOME machine/site, in our example either alpha.domain.tld o beta.domain.tld; if either fails (that is: becomes unreachable) we want all the requests to land on the reachable one(s).
+
 I have api.domain.tld pointing as CNAME to api.pool.domain.tld, note that therefore YOU CANNOT have something else pointing as a CNAME to api.domain.tld on its behalf; then the zone pool.domain.tld is delegated to two nameservers which are... the nodes themselves.
 At this point when a client asks for api.domaind.tld it becomes api.pool.domain.tld and the DNS query goes to alpha.domain.tld and beta.domain.tld, now say I am alpha and someone out there asks me for api.pool.domain.tld:
 1. I should always respond with my own IP, if the client could reach the DNS running here it can also reach the service (and we are working only on reachability/site redundancy, services which go down are expected to be handled by other means)
@@ -101,11 +129,11 @@ At this point we are done with the "normal operations", we have to handle site f
 
 ### Set up SSL certificates
 
-Doing DNS load balancing with SSL requests is a bit tricky: you need to have multiple hosts answering from different IP addresses for the same URI, you need the sertificates to be valid but also to be kept up to date and... most ACME toolchains do not support this very well.
-In example Let's Encrypt and certbot can do it but.. are not designed to do it!
+Doing DNS load balancing with SSL requests is a bit tricky: you need to have multiple hosts answering from different IP addresses for the same URI, you need the sertificates to be valid but also to be kept up to date and... most ACME toolchains do not support this very well; in example Let's Encrypt and certbot can do it but.. are not designed to do it!
 
-You need each node/site to renew the certificate, this is done by certbot, when you do so the certificate issuer will want to check ("challenge") that you really control the machine or the DNS for it; that is: to renew a certificate for api.domain.tld the issuer (in my case Let's encrypt) will want you to either have a certain record in the domain domain.tld or to answer in a certain manner at an http request under http://api.domain.tld/.well-known/acme-challenge (note well: plain http, not https).
-Let's forget about DNS challenges by now and stick to http: in normal operation api.domain.tld will resolve to both alpha anbd beta, when they challenge http://api.domain.tld you do not know at which site the request will land.
+You need each node/site to renew the certificate, this is done by certbot, when you do so the certificate issuer will want to check ("challenge") that you really control the machine or the DNS for it; that is: to renew a certificate for api.domain.tld the issuer (in my case Let's encrypt) will want you to either have a certain record in the domain domain.tld or to answer in a certain manner at an http request (a "challenge") under http://api.domain.tld/.well-known/acme-challenge (note well: plain http, not https).
+
+Let's forget about DNS challenges by now and stick to http: in normal operation api.domain.tld will resolve to both alpha anbd beta, when they challenge http://api.domain.tld you do not know at which site the request will land, this should be quite clear after readin the DNS stuff above: api.domain.tld is a CNAME for api.pool.domain.tld, which on its behalf has BOTH addresses 1.2.3.4 and 5.6.7.8: you do not know on which the challenhge request will land.
 
 In a normal setup certbot integrates with your web server (whatever it is) to answer to that request with some magic; in case you do not have a web server it even can act as a web server itself and handle the request; but at th end of the story: Let's encrypt will access http://api.domain.tld/.well-known/acme-challenge, this request will land somewhere, it must be answered with that magic for the renewal to work, and since we are load balancing through DNS we do not know at which site the request will land.
 
@@ -127,8 +155,10 @@ In a nutshell:
 That's it: The random token contained in the brequest followed by the thumbprint, separated by a dot!
 
 All we have to do to have the first certificate on one machine is create the account on that machine, say alpha, ("certbot register" and answer the requested information), then gather the Thumbprint ("certbot show_account"), it shows something like "Account Thumbprint: 1234-blaBlaBla-SnafuzBro-Gne123GnegnegnGne", add these lines to haproxy.conf on ALL sites/machines:
-1. In the global section: "setenv ACCOUNT_THUMBPRINT '1234-blaBlaBla-SnafuzBro-Gne123GnegnegnGne'"
-2. In the frontend section listening on port 80: "http-request return status 200 content-type text/plain lf-string "%[path,field(-1,/)].${ACCOUNT_THUMBPRINT}\n" if { path_reg '^/.well-known/acme-challenge/[-_a-zA-Z0-9]+$' }"
+1. In the global section: "setenv THUMB '1234-blaBlaBla-SnafuzBro-Gne123GnegnegnGne'"
+2. In the frontend section listening on port 80: "http-request return status 200 content-type text/plain lf-string "%[path,field(-1,/)].${THUMB}\n" if { path_reg '^/.well-known/acme-challenge/[-_a-zA-Z0-9]+$' }"
+
+What we have done is setting up on all machines a "web server" (Yeah, HAProxy IS a web server after all) which replies with the correct stuff (SEED.THUMB) on each node to requests at http://whatever/.well-known/acme-challenge/SEED; no matter on which machine the request lands the answer will be correct.
 
 At this point we can create the SSL certificate for machine alpha, but we have to adopt a few tricks:
 1. What we are doing is called "stateless mode" challenge, and certbot does not directly support stateless mode; however it supports a "standalone" mode in which certbot itself runs an http server to handle the resuest; all is needed is run certbot in standalone mode and have it bind in some free port (say 9080) on 127.0.0.1, it will never get any request but haproxy will do the job, the magic is: "--standalone --preferred-challenges http --http-01-address 127.0.0.1 --http-01-port 9080"
@@ -139,5 +169,15 @@ Thus, this is the magic to have our certificate on alpha:
 ```
 certbot certonly --standalone --preferred-challenges http --http-01-address 127.0.0.1 --http-01-port 9080 -d alpha.domain.tld,api.domain.tld
 ```
+
+As the challenge can land on "some" node but we managed all nodes to answer properly for your account it is pretty simple to generate the certificates for the other node(s): just use the SAME account, meaning: make a tgz of `/usr/local/etc/letsencrypt/accounts/`, copy it to the other machines and expand it in the same place; then on any machine/site a `certbot show_account` should report the same thumbprint.
+
+You can at this point generate the certificate for beta, noting that it must again be valid for two names which, here, are beta.domain.tld and api.domain.tld:
+```
+certbot certonly --standalone --preferred-challenges http --http-01-address 127.0.0.1 --http-01-port 9080 -d beta.domain.tld,api.domain.tld
+```
+
+No need to say that if you have more than two sites/machines things do not change much: just copy your account there are generate the certificate for "gamma.domain.tld,api.domain.tld" etc.
+
 
 
