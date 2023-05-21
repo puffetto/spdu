@@ -69,9 +69,9 @@ You will want to use HAProxy on each node/site for a number of reasons:
 
 Really: you might have each site run even an hardware load balancer, in that case have it spread the requests on multipla HAroxy instances (but I have seen no real world scenario where this makes sense on a single "site", once again unless you are Google or Facebook); you might have one single instance of your daemon servicing requests, but still having HAProxy "shield" it is a good idea (and, once again, I have seen no real world scenario in which it is a good idea to have a single instance of your daemon).
 
-Besides "portinstall haproxy" and placing a 'haproxy_enable="YES" all you need is a configuration file in /usr/local/etc/haproxy.conf, in this directory you find our example. Some tricks/notes on this configuration follow.
+Besides "portinstall haproxy" and placing a 'haproxy_enable="YES"' in rc.conf, all you need is a configuration file in /usr/local/etc/haproxy.conf, in this directory you find our example. Some tricks/notes on this configuration follow.
 
-As said I have five copies of my daemon listening all only on localhost on ports 4441-4445; all this configuration does is:
+As said I have five copies of my daemon, listening all only on localhost on ports 4441-4445; all this configuration does is:
 1. Listen on public port 80 (and 443 with SSL) and balance the load on the five locale daemons
 2. Skip/ignore dead instances (note that they are all marked "check")
 3. Take care of SSL, after you uncomment the "`bind *:443 ssl crt...`" line (but read below before doing so)
@@ -85,13 +85,14 @@ If some local daemon is dead HAProxy will skip it and route the requests to the 
 We obviously neee each site to respond also on port 8080 to act as a "backup" for the other one; but we use a separate "listen" block (the one named "listen backup"), because we do not want requests on port 8080 to be routed back on port 8080 of the first node (this would create a loop, HAProxy has its own route prevention strategies, but it is a good idea to prevent triggering them).
 Practically: if all daemons on a machine are down but some is working on the other one and all the rest is working (network, routes, DNS; etc) the site will "gracefully" failover routing all the requests on the $OTHER site; using SSL as we do not want our ISPs see our traffic.
 
-To make the long story short: install haproxy and enable it, place the haproxy.conf file attached into /usr/local/etc on each node, edit properly the variables MYSELF, OTHER and COMMON, start it and read below about the variable THUMB and the lines containing "ssl" which are commented.
+To make the long story short: install haproxy and enable it, place the haproxy.conf file attached into /usr/local/etc on each node, edit properly the variables MYSELF, OTHER and COMMON, start it and read below about the variable THUMB and the lines containing "ssl" which are commented. That's it.
 
 ### Set up DNS
 
-In normal operation we want requests for api.domain.tld to land on SOME machine/site, in our example either alpha.domain.tld o beta.domain.tld; if either fails (that is: becomes unreachable) we want all the requests to land on the reachable one(s).
+In normal operation we want requests for api.domain.tld to land on SOME machine/site, in our example either alpha.domain.tld or beta.domain.tld; if either fails (that is: it becomes unreachable), then we want all the requests to land on the reachable one(s).
 
 I have api.domain.tld pointing as CNAME to api.pool.domain.tld, note that therefore YOU CANNOT have something else pointing as a CNAME to api.domain.tld on its behalf; then the zone pool.domain.tld is delegated to two nameservers which are... the nodes themselves.
+
 At this point when a client asks for api.domaind.tld it becomes api.pool.domain.tld and the DNS query goes to alpha.domain.tld and beta.domain.tld, now say I am alpha and someone out there asks me for api.pool.domain.tld:
 1. I should always respond with my own IP, if the client could reach the DNS running here it can also reach the service (and we are working only on reachability/site redundancy, services which go down are expected to be handled by other means)
 2. IF i can reach the service on beta.domain.tld then I suppose that it is alive, and I should put in the reply also the IP of beta; so we balance the load under normal operation
@@ -122,6 +123,7 @@ blackye@undici ~ %
 ```
 
 At this point we are done with the "normal operations", we have to handle site failures.
+
 
 
 
