@@ -90,7 +90,9 @@ We obviously need each site to respond also on port 9443 (SSL) to act as a "back
 
 Practically: if all daemons on a machine are down but some is working on the other one and all the rest is working (network, routes, DNS; etc) the site will "gracefully" failover routing all the requests on the $OTHER site; using SSL as we do not want our ISPs see our traffic.
 
-To make the long story short: install haproxy and enable it, place the haproxy.conf file attached into /usr/local/etc on each node, edit properly the variables MYSELF, OTHER and COMMON, start it and read below about the variable THUMB and the lines containing "ssl" which are commented. That's it.
+Finally this setup will blidly rewrite the host part of any http/https request to be $SITE, that is api.domain.tld in our domain; this makes things easier if your backend daemon expects so and uou want to test using curl on IPs or single host names.
+
+To make the long story short: install haproxy and enable it, place the haproxy.conf file attached into /usr/local/etc on each node, edit properly the variables MYSELF, OTHER and SITE, start it and read below about the variable THUMB and the lines containing "ssl" which are commented. That's it.
 
 ### Set up DNS
 
