@@ -4,6 +4,8 @@ Service Probe and DNS Updater
 This toolkit provides example configuration files and scripts aimed at deploying a multi-site service using DNS to (roughly) balance load and implement automatic failover.
 The examples assume that you run your services on FreeBSD and shield them behing HAProxy, but the concepts, examples and escripts can be easily adapted to different setups.
 
+Please keep in mind that this is not official documentation nor is released software or such: these are personal notes which I put here in case someone finds them useful. No guarantees included :)
+
 ### The problem.
 
 Sites DO have failures. It is quite common to put services behing load balancers and failover handlers, in example through HAProxy, but at the end of the day, unless you are Google or Facebook and you are implementing multisite redundancy at IP/routing level (that is: a fake multicast obtained playing with BGP), you still have ONE IP address answering to your service requests from ONE site.
