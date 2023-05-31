@@ -231,5 +231,40 @@ certbot certonly --standalone --preferred-challenges http --http-01-address 127.
 
 No need to say that if you have more than two sites/machines things do not change much: just copy your account there are generate the certificate for "gamma.domain.tld,api.domain.tld" etc.
 
+# SECURITY NOTES
+
+It is important that one understands what he is doing, so please read carefully this part.
+
+First: we are doind stateless challenging for SSL certificates, this means that all our machines will happily reply bingo.THUMBPRINT to anyone requesting it, at any time. Someone will yell that RFC8555 states "Clients SHOULD NOT respond to challenges until they believe that the server's queries will succeed" and then "The client SHOULD de-provision the resource provisioned for this challenge once the challenge is complete".
+
+It is bullshit. RFCs have a precise jargon and in this jargon "SHOULD" is not "MUST". Actually "SHOULD" means "We adice you to do it this way unless you know what you are doing". We know what we are doing: we reply to any request from anyone at any time with the Thumbprint. 
+
+Is this a problem? No. It's not.
+
+1. The thumbprint is all but a secret, at any renewal it will fly back and forth on the network in plain HTTP (no SSL)
+2. A malicious actor might simply be patient enough and keep asking for it: sooner or later he would get the moment when certificates are being renewed
+3. The Thumbprint is an (irreversible) HASH of the PUBLIC key of the account. HASH, PUBLIC KEY. Says something? It is not a secret, it is not a private key, it is not even something from which you can derive the public key.
+
+The second objection could be that we are permanently replying to challenges. 
+
+Could this be exploited somehow? No. It cannot.
+
+All we do is tell the world "Hey, the server responding on this IP address is associated with the account whose public key has this hash".
+1. Noone could use this to associate our server with a different account
+2. Noone could use this to asssociate a different IP address with our account
+3. Noone could do anything, unless they have our account's PRIVATE key.
+
+The only REAL problem for this scenario is that the account (with its private key) is shared across all the machines: fucked one, fucked all. 
+
+But I see you. I know that you have you magical ring of SSH keys without passphrase to happiliy jump from one machine to another, I know you have "sudo -i" enabled without a password. I know it. Don't lie and keep people out of your machines: fucked one, fucked all.
+
+A second securiy issue is related to the DNS: we allow anyone to update the RRSet "api.pool.domain.tld" as long as it's from 127.0.0.1. But you do not give accounts to strangers on production machines... do you?
+
+Well, if you do then have fun setting up authentication for a script updating a DNS server on the same machine; but also remember to secure properly the oplace where th script reads the key as... anything but 600 would put you back in trouble,
+
+
+
+
+
 
 
