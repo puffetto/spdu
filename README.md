@@ -75,7 +75,7 @@ IMPORTANT note about bash: For my own convenience I install a static link versio
 
 You will want to use HAProxy on each node/site for a number of reasons:
 1. It's damn fast, efficient, stable, flexible, powerful and easy to set up
-2. It will take care of terminating SSL, so your daemons do not have to take care of it; and you can bet it is safer and more stable to do so than tring to do it yourself on the daemons
+2. It will take care of terminating SSL, so your daemons do not have to take care of it; and you can bet it is safer and more stable to do so than trying to do it yourself on the daemons
 3. It can balance the load on different on-site daemons, will take care of routing the requests to non-failed ones, etcetera
 
 Really: you might have each site run even an hardware load balancer, in that case have it spread the requests on multipla HAroxy instances (but I have seen no real world scenario where this makes sense on a single "site", once again unless you are Google or Facebook); you might have one single instance of your daemon servicing requests, but still having HAProxy "shield" it is a good idea (and, once again, I have seen no real world scenario in which it is a good idea to have a single instance of your daemon).
