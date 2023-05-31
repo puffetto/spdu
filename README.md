@@ -9,14 +9,19 @@ Please keep in mind that this is not official documentation nor is released soft
 ### The problem.
 
 Sites DO have failures. It is quite common to put services behing load balancers and failover handlers, in example through HAProxy, but at the end of the day, unless you are Google or Facebook and you are implementing multisite redundancy at IP/routing level (that is: a fake multicast obtained playing with BGP), you still have ONE IP address answering to your service requests from ONE site.
+
 You can do a very good job in having that IP served by something extremely stable (like HAProxy) and then spread the requests to redundant backends, but when that IP becomes unreachable your service will be unreachable.
+
 Experience says that this is, after human error, the second reason for services going down. It can be a datacenter power failure, an ISP's broken routing, your provider suspending the service because PayPal failed to promptly process a payment, a scheduled maintenance for which you oversaw the email notification, whatever: it happens, and it happens quite often.
 
 ### The solution.
 
-There is only one way to work around this (besides being Google, but if you are reading this I bet you are not): have multiple sites answering the requests, from different IP addresses, from different networks, managed by differenbt providers, deployed in different sites/datacenters.
+There is only one way to work around this (besides being Google, but if you are reading this I bet you are not): have multiple sites answering the requests, from different IP addresses, from different networks, managed by different providers, deployed in different sites/datacenters.
+
 Redundancy, and the absence of Single Points of Failure, is the mother of availability. 
+
 One site with four-nines availability is (unexpectedly) down for 8 hours per year, and this may hurt; five nines is still five minutes per year and this might or might not be ok; on the other side two redundant sites which are COMPLETELY independent and have *only* 99,9% availability are expected to be both down for less than 30 seconds per year; two sites at four nines are already in the realm of milliseconds per year of unavailability.
+
 To do this you have to deal with two issues: your clients must be able to find the IP of the site able to respond in a given moment and they have to be able to verify that this is you (yeah... SSL), here you will find some advice and some scripts to implement it.
 
 ### The goals
@@ -53,7 +58,9 @@ In the examples:
 8. I keep by TTLs quite short (usually seconds)
 
 The point on the above "5." is that, again, we are not talking about load scalability or about service probing here, we are talking about site redundancy, and only that.
+
 In your actual setup you might have 100 computing nodes behind the IP at each site, have a pool of dedicated HAProxy machines with hardware balancers behind them, you might have a dedicated machine on each side just for the DNS: nothing protects you against the site going down.
+
 What remains your responsibility in this setup is everything that is within the site: I assume that "if some service at the site [machine] is down the entire site [machine] is down", I assume that you have your ways to keep the services up and responsive IF the site [machine] is up and reachable, nothing here probes the single services.
 
 On each machine install:
@@ -128,9 +135,12 @@ pool.domain.tld. 10 NS beta.domain.tld.
 Then on each node install knot (portinstall knot3); edit the pertinent files from this repository and place them into /usr/local/etc/knot/knot.conf and /var/db/knot/pool.domain.tld.zone; add a line in /etc.rc.conf stating knot_enable="YES" and go with "service knot start".
 
 Take note that the last field in the SOA record into pool.domain.tld.zone is ONLY used as "negative response TTL", meaning that should a server respond that there is no record for the given request this answer will be cached for this number of seconds (this happens, in example, for the AAAA request, as we do not have IPv6 addresses in this example), so it should essentially be the same as the TTL in the A records (in my case 5 or 10 seconds).
+
 Everything else in the SOA recordo is IGNORED in our setup, as we do not use DNS zone transfers, it MUST be ignored as nothing in the RFCs allow any use of that information. 
+
 Side note: Yes: you can have more than one "master" server for a zone; DNS itself, in the name resolution process, does not even have an idea about what a "master" and a "slave" server is, there are only "uathoritative" and "cache" servers; all our nodes are "authoritative servers", the resolution protocol is politically correct, stuff like "serial", "mname", "rname", "refresh", "retry" and "expire" MUST be ignored by clients, except the saide use for "expire" (time to cache ythe negative "No records" reply"); the field "aname" *might* bne usde by an human to contact the responsible for the doiman... would you expect a reply? :D
-That's it: you can have more than an "authoritative" server for a zone, as the concept of "authoroitaive" applies only to DNA zone transfers (which you are not obliged to use) and all the content of the "SOA" record is bullshit besides the last field ("[negative] expire").
+
+That's it: you can have more than an "authoritative" server for a zone, as the concept of "authoritaive" applies only to DNA zone transfers (which you are not obliged to use) and all the content of the "SOA" record is bullshit besides the last field ("[negative] expire").
 
 If everything is ok on any machine of the world you will have this working:
 ```
@@ -238,7 +248,7 @@ certbot certonly --standalone --preferred-challenges http --http-01-address 127.
 
 No need to say that if you have more than two sites/machines things do not change much: just copy your account there are generate the certificate for "gamma.domain.tld,api.domain.tld" etc.
 
-To update the certificates certbot already comes with its own (ugly, but decently working) periodic script, all you need is enable it in /etc/periodic.conf with the proper options; find attached an example periodic.conf that will also shut down the attempts of other periodic scripts to flood you by email (you disabled sendmail? didn't you? did they tell that sendmail_enable="NONE" in /etc/rc.conf is mandatory for your mental health?).
+To update the certificates certbot already comes with its own (ugly, but decently working) periodic script, all you need is enable it in /etc/periodic.conf with the proper options; find attached an example periodic.conf that will also shut down the attempts of other periodic scripts to flood you by email (you disabled sendmail? didn't you? did they tell that sendmail_enable="NONE" in /etc/rc.conf is mandatory for your mental health? did you know that sendmail sucks almost as much as systemd?).
 
 # SECURITY NOTES
 
@@ -267,9 +277,9 @@ The only REAL problem for this scenario is that the account (with its private ke
 
 But I see you. I know that you have you magical ring of SSH keys without passphrase to happiliy jump from one machine to another, I know you have "sudo -i" enabled without a password. I know it. Don't lie and keep people out of your machines: fucked one, fucked all.
 
-A second securiy issue is related to the DNS: we allow anyone to update the RRSet "api.pool.domain.tld" as long as it's from 127.0.0.1. But you do not give accounts to strangers on production machines... do you?
+A second securiy issue is related to the DNS: we allow anyone to update the RRSet "api.pool.domain.tld" as long as it's from 127.0.0.1. But you do not give shell access to strangers on your production machines... do you?
 
-Well, if you do then have fun setting up authentication for a script updating a DNS server on the same machine; but also remember to secure properly the oplace where th script reads the key as... anything but 600 would put you back in trouble,
+Well, if you do then feel free to have fun setting up authentication for a script updating a DNS server on the same machine; but also remember to secure properly the oplace where the script reads the key as... anything but 600 would put you back in trouble.
 
 
 
