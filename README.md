@@ -260,7 +260,9 @@ First: we are doing stateless challenging for SSL certificates, this means that 
 
 Someone will yell that RFC8555 states "Clients SHOULD NOT respond to challenges until they believe that the server's queries will succeed" and then "The client SHOULD de-provision the resource provisioned for this challenge once the challenge is complete".
 
-It is bullshit. RFCs have a precise jargon and in this jargon "SHOULD" is not "MUST". Actually "SHOULD" means "We adice you to do it this way unless you know what you are doing". We know what we are doing: we reply to any request from anyone at any time with the Thumbprint. 
+It is bullshit. RFCs have a precise jargon and in this jargon "SHOULD" is not "MUST". Actually "SHOULD" means "We ADVICE you to do it this way, UNLESS you know what you are doing". 
+
+We know what we are doing: we reply to any request from anyone at any time with the Thumbprint. 
 
 Is this a problem? No. It's not.
 
