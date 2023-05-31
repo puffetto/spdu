@@ -1,0 +1,84 @@
+#! /bin/sh
+# Put this is /usr/local/etc/rc.d/spdu
+
+# $FreeBSD$
+#
+# spdu startup script
+#
+# PROVIDE: spdu
+# REQUIRE: LOGIN
+# KEYWORD: shutdown
+#
+# Add the following to /etc/rc.conf[.local] to enable this service
+#
+# spdu_enable="YES"
+#
+# spdu rc.d script supports multiple targets (a-la rc.d/nginx)
+# 
+# This is inspired by and largely copied from
+# https://svnweb.freebsd.org/ports/head/www/fcgiwrap/files/fcgiwrap.in?revision=307542&view=co
+# 
+# Example:
+#
+# spdu_enable="YES"
+# spdu_targets="myserver myotherserver"
+
+. /etc/rc.subr
+
+name="spdu"
+rcvar=spdu_enable
+
+
+pidprefix="/var/run/spdu"
+pidfile="${pidprefix}.pid"  # May be a different path if targets are in use
+target=""
+
+dscript="/usr/local/sbin/${name}"
+command="/usr/sbin/daemon"
+procname="${command}"
+
+load_rc_config $name
+
+# These are just the defaults, they might get overriden for a specific target.
+spdu_enable=${spdu_enable:-"NO"}
+spdu_targets=${spdu_targets:-""}
+
+# This handles target specific vars
+if [ -n "$2" ]; then
+	# WARNING: This turns out to be O(2) on the number of targets,
+	# DO NOT use this rc script for... dozens of them!
+	for tag in ${spdu_targets}; do
+		if [ x"$tag" = x"$2" ]; then
+			target="$tag"
+		fi
+	done
+	if [ -n "${target}" ]; then
+		pidfile="${pidprefix}.${target}.pid"
+		eval spdu_enable="\${spdu_${target}_enable:-${spdu_enable}}"
+	else
+		echo "$0: extra argument ignored because it was not in spdu_targets"
+	fi
+else
+	if [ -n "${spdu_targets}" -a -n "$1" ]; then
+		for target in ${spdu_targets}; do
+			/usr/local/etc/rc.d/spdu $1 ${target}
+			retcode="$?"
+			if [ "0${retcode}" -ne 0 ]; then
+				failed="${target} (${retcode}) ${failed:-}"
+			else
+				success="${target} ${success:-}"
+			fi
+		done
+		# It exits so that non-target rc.d is not started when there are targets.
+		exit 0
+	fi
+fi
+
+command_args="-S -f -P ${pidfile} ${dscript} ${target}"
+if [ -n ${target} ]
+then
+	run_rc_command "$1" | /usr/bin/sed -e "s_^_[target=${target}] _"
+else
+	run_rc_command "$1"
+fi
+
