@@ -12,8 +12,11 @@
 # Add the following to /etc/rc.conf[.local] to enable this service
 #
 # spdu_enable="YES"
+# spdu_name="servername"
 #
 # spdu rc.d script supports multiple targets (a-la rc.d/nginx)
+# When targets are specified, the non-target specific parameters become defaults,
+# except for spdu_target_name which will default to "target"
 # 
 # This is inspired by and largely copied from
 # https://svnweb.freebsd.org/ports/head/www/fcgiwrap/files/fcgiwrap.in?revision=307542&view=co
@@ -42,11 +45,12 @@ load_rc_config $name
 # These are just the defaults, they might get overriden for a specific target.
 spdu_enable=${spdu_enable:-"NO"}
 spdu_targets=${spdu_targets:-""}
+spdu_name=${spdu_name:-""}
 
 # This handles target specific vars
 if [ -n "$2" ]; then
 	# WARNING: This turns out to be O(2) on the number of targets,
-	# DO NOT use this rc script for... dozens of them!
+	# DO NOT use this rc script for... dozens of targets!
 	for tag in ${spdu_targets}; do
 		if [ x"$tag" = x"$2" ]; then
 			target="$tag"
@@ -55,6 +59,7 @@ if [ -n "$2" ]; then
 	if [ -n "${target}" ]; then
 		pidfile="${pidprefix}.${target}.pid"
 		eval spdu_enable="\${spdu_${target}_enable:-${spdu_enable}}"
+		eval spdu_name="\${spdu_${target}_name:-${target}}"
 	else
 		echo "$0: extra argument ignored because it was not in spdu_targets"
 	fi
@@ -74,7 +79,8 @@ else
 	fi
 fi
 
-command_args="-S -f -P ${pidfile} ${dscript} ${target}"
+command_args="-S -f -P ${pidfile} ${dscript} ${spdu_name}"
+
 if [ -n ${target} ]
 then
 	run_rc_command "$1" | /usr/bin/sed -e "s_^_[target=${target}] _"
