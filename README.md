@@ -88,9 +88,9 @@ Let me explain point 4 above.
 As said handling application level availability is beyond the scope of this note, however something very simple and quite effective can be done here as is easily done by HAProxy.
 The example setup has two "listen" blocks, a listen block describes both a client listener and a backend pool of servers; the first block listens on standard 80 and 443 ports (for SSL) and routes the calls on the five daemons running locally on ports 4441-4445, each backend server is marked "check", meaning that HAProxy will periodically try to connect to the daemons to check if they are alive. HAProxy can perform much deeper and more accurate tests than just connecting, but you will have to look at its documentation for that.
 
-If some local daemon is dead HAProxy will skip it and route the requests to the remaining ones, if ALL of them are dead HAProxy (in our configuration) will use the backend listed in line `server... backup`, that is: connect using SSL to port 9443 of the %{OTHER} node and route requests there.
+If some local daemon is dead HAProxy will skip it and route the requests to the remaining ones, if ALL of them are dead HAProxy (in our configuration) will use the backend listed in line `server... backup`, that is: connect using SSL to port 8443 of the %{OTHER} node and route requests there.
 
-We obviously need each site to respond also on port 9443 (SSL) to act as a "backup" for the other one; but we use a separate "listen" block (the one named "listen backup"), because we do not want requests on this block 8080 to be routed back toward the first node (this would create a loop, HAProxy has its own route prevention strategies, but it is a good idea to prevent triggering them). Please note that, we will se in the section about automatically updating DNS, you *must* have this listener in place for plain HTTP requests on port 9080, so all we added is the "backup" server in the first listen block and the "bind ... ssl" one in the second.
+We obviously need each site to respond also on port 8443 (SSL) to act as a "backup" for the other one; but we use a separate "listen" block (the one named "listen backup"), because we do not want requests on this block 8080 to be routed back toward the first node (this would create a loop, HAProxy has its own route prevention strategies, but it is a good idea to prevent triggering them). Please note that, we will se in the section about automatically updating DNS, you *must* have this listener in place for plain HTTP requests on port 8080, so all we added is the "backup" server in the first listen block and the "bind ... ssl" one in the second.
 
 Practically: if all daemons on a machine are down but some is working on the other one and all the rest is working (network, routes, DNS; etc) the site will "gracefully" failover routing all the requests on the $OTHER site; using SSL as we do not want our ISPs see our traffic.
 
@@ -166,6 +166,7 @@ This remains true as long as:
 - The machine you want to monitor is in the same domain (i.e. beta.domain.tld)
 - Your "api" is called... api (api.domain.tld) and responds on the default port
 - Your "pool" is called again api in the "pool" subzone, like in this example setup: api.pool.domain.tld
+- Your service replies with some text at the URI http://api.domain.tld/status; any answer is ok, as long as it's an HTTP 200 response.
 - The DNS you want to update is at 127.0.0.1
 
 If you want spdu to send you email notifications, besides placing your address(es) in mailTo, you might need to specity an smtp server (if it is not smtp.domain.com) and a password (if your smtp does not relay without authentication from your machines' IPs).
@@ -236,6 +237,8 @@ certbot certonly --standalone --preferred-challenges http --http-01-address 127.
 ```
 
 No need to say that if you have more than two sites/machines things do not change much: just copy your account there are generate the certificate for "gamma.domain.tld,api.domain.tld" etc.
+
+To update the certificates certbot already comes with its own (ugly, but decently working) periodic script, all you need is enable it in /etc/periodic.conf with the proper options; find attached an example periodic.conf that will also shut down the attempts of other periodic scripts to flood you by email (you disabled sendmail? didn't you? did they tell that sendmail_enable="NONE" in /etc/rc.conf is mandatory for your mental health?).
 
 # SECURITY NOTES
 
