@@ -8,7 +8,7 @@ Please keep in mind that this is not official documentation nor is released soft
 
 ### The problem.
 
-Sites DO have failures. It is quite common to put services behing load balancers and failover handlers, in example through HAProxy, but at the end of the day, unless you are Google or Facebook and you are implementing multisite redundancy at IP/routing level (that is: a fake multicast obtained playing with BGP), you still have ONE IP address answering to your service requests from ONE site.
+Sites DO have failures. It is quite common to put services behind load balancers and failover handlers, in example through HAProxy, but at the end of the day, unless you are Google or Facebook and you are implementing multisite redundancy at IP/routing level (that is: a fake multicast obtained playing with BGP), you still have ONE IP address answering to your service requests from ONE site.
 
 You can do a very good job in having that IP served by something extremely stable (like HAProxy) and then spread the requests to redundant backends, but when that IP becomes unreachable your service will be unreachable.
 
@@ -19,6 +19,8 @@ Experience says that this is, after human error, the second reason for services 
 There is only one way to work around this (besides being Google, but if you are reading this I bet you are not): have multiple sites answering the requests, from different IP addresses, from different networks, managed by different providers, deployed in different sites/datacenters.
 
 Redundancy, and the absence of Single Points of Failure, is the mother of availability. 
+
+My definition of availability is "above five nines and with less than 20 seconds RTR" for production stuff.
 
 One site with four-nines availability is (unexpectedly) down for 8 hours per year, and this may hurt; five nines is still five minutes per year and this might or might not be ok; on the other side two redundant sites which are COMPLETELY independent and have *only* 99,9% availability are expected to be both down for less than 30 seconds per year; two sites at four nines are already in the realm of milliseconds per year of unavailability.
 
