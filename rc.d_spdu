@@ -31,8 +31,7 @@
 name="spdu"
 rcvar=spdu_enable
 
-
-pidprefix="/var/run/spdu"
+pidprefix="/var/run/spdu/spdu"
 pidfile="${pidprefix}.pid"  # May be a different path if targets are in use
 target=""
 
@@ -46,6 +45,7 @@ load_rc_config $name
 spdu_enable=${spdu_enable:-"NO"}
 spdu_targets=${spdu_targets:-""}
 spdu_name=${spdu_name:-""}
+spdu_user=${spdu_user:-"root"}
 
 # This handles target specific vars
 if [ -n "$2" ]; then
@@ -60,6 +60,7 @@ if [ -n "$2" ]; then
 		pidfile="${pidprefix}.${target}.pid"
 		eval spdu_enable="\${spdu_${target}_enable:-${spdu_enable}}"
 		eval spdu_name="\${spdu_${target}_name:-${target}}"
+		eval spdu_user="\${spdu_${target}_user:-${spdu_user}}"
 	else
 		echo "$0: extra argument ignored because it was not in spdu_targets"
 	fi
