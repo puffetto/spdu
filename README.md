@@ -155,6 +155,8 @@ You can start it with no parameters or with exactly one parameter; if you specif
 
 The configuration is read in /usr/local/etc/spdu.conf (if it exists), then if you specified a target in the command line things can be overridden in /usr/local/etc/spdu/targetName.
 
+Note that the configuration files for spdu (both spdu.conf and the ones in spdu/target) MJUST be owned by root and MUST NOT be writeable by anyone else than root, or spdu will *refuse* to start.
+
 The spdu.conf example file is very well documented: find all the possible parameters and their default values there.
 
 As a matter of fact for the scenario described here... all the defaults are adeguate, and you might not even have a configurayion file :D
@@ -170,7 +172,7 @@ If you want spdu to send you email notifications, besides placing your address(e
 
 That's it. You can have alpha monitor beta and update its own DNS by simply running "spdu beta" there, on beta you will have to run "spdu alpha"; in this way it will run in foreground and show on the terminal what happens.
 
-As said the kid comes with its nice rc.d script, just place it in /usr/local/etc/rc.d/spdu and it will run spdu under the control of /usr/sbin/daemon, sending the output to syslog. All is needed is a spdu_enable="YES" and a spdu_name="alpha" (or "beta") in /etc/trc.conf. I do not remember if I already said that systemd sucks. Did I?
+As said the kid comes with its nice rc.d script, just place it in /usr/local/etc/rc.d/spdu and it will run spdu under the control of /usr/sbin/daemon, sending the output to syslog. All is needed is a spdu_enable="YES" and a spdu_name="alpha" (or "beta") in /etc/rc.conf; then create the directory /var/run/spdu. I do not remember if I already said that systemd sucks. Did I?
 
 You might need to monitor more than one server, in example if you have three nodes named alpha, beta and delta you will want spdu on alpha monitor both beta and delta, this is the way in rc.conf:
 ```
@@ -178,6 +180,10 @@ spdu_enable=YES
 spdu_targets="beta delta"
 ```
 You can even use a server name that is different from the target name, like spdu_delta_name="delta.someotherdomain.tld", which might be useful if you have to use FQDNs for names (it's definitvely a bad idea to have a target name long and with dots in it...), whatever is in the specific spdu_target_name (wich defaults to "target") will be passed to spdu.
+
+Finally, as it is never a good idea to run stuff as root, you can tell rc to run spdu as some unpriviledged user (I decided to "reuse" knot, which is the user runnning the DNS), just add to rc.conf: `spdu_user="knot"`.
+
+Take note that this user must be allowed to read the spdu configuration file(s) and write the directory /var/run/spdu.
 
 ### Set up SSL certificates
 
