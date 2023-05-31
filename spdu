@@ -1,0 +1,386 @@
+#! /bin/bash
+
+# Source a configuration file if it exists as a regular file
+# and it is safe; here "safe" means that it is owned by root
+# and cannot be written by anyone but root, otherwise it would
+# NOT be *safe* to source it in a script... running as root!
+safeSource()
+{
+    # must exist and be a regular file
+    [[ -f ${1} ]] || return 
+
+    # hope what we have as ${ls} is a POSIX compliant "ls"!
+    local fin=`${ls} -Ll ${1}`
+    local chk='^.....-..-.[ ]+[0-9]+[ ]+root'
+
+    if [[ $fin =~ $chk ]]
+    then
+        echo "spdu: INFO: Reading configuration file ${1}"
+        source ${1}
+    else
+        echo "spdu: ERROR: configuration file ${1} is NOT SAFE, ignoring it"
+    fi
+}
+
+# Die reporting the reason, used only in startup phase as: fail reason
+# When testing from an interactive terminal the message goes on stdout,
+# while when running as a service this is redirected to syslog
+fail()
+{
+    echo spdu: ERROR: ${1}
+    exit 1
+}
+
+# This function probes the node availability, returns true (no error 
+# code) if the node is actually working, used as "if working"
+# Besides the forced path for the binary ${curl} this relies on
+# the follwing variables to be properly set:
+# - ${mapIP}: a --resolve specifier to force cURL on the node IP
+#             (on the right port for the URI's hostname).
+# - ${probeTimeout}: Allowed time for probing
+# - ${probeURI}: the full URI to be fecthed for probing
+probe()
+{
+    for I in $(seq ${probeRetries})
+    do
+    	${curl} --disable --resolve ${mapIP} \
+        	--ipv4 --fail --fail-early --max-time ${probeTimeout} \
+        	${probeURI} --output /dev/null 2> /dev/null && return 0
+    done
+    return $?
+}
+
+# This function adds or deletes our node to/from the DNS pool
+# Is used as "pool true" or "pool false", where true/false means
+# that we want the IP in the pool a-la-unix: 0=true, non-0=false
+# Returns some error code if the DNS could not be reached,
+# however redundant updates (deleting the server when it's not 
+# there or adding it while it is already there) are silent
+# and apparently "succeed", even though they do nothing.
+# Besides the path to $nsupdate it expects:
+# - $nameServer: The IP address of the nameserver to be updated
+# - $poolZone: The zone name in which the entry is added/deleted
+# - $poolName: The FQDN of the RRset to be updated
+# - $nameTTL: The TTL for the RRset to be updated
+# - $targetIP: The numeric IP address to add/delete
+pool()
+{
+    local action="add"
+    [ ${1} -eq "0" ] || action="delete"
+    printf "server %s\nzone %s\nupdate %s %s %s A %s\nsend\n" \
+        ${nameServer} ${poolZone} ${action} ${poolName} \
+        ${nameTTL} ${targetIP} \
+        | ${nsupdate}  -v
+    return $?
+}
+
+log()
+{
+    local std="UP"
+    [ ${1} -eq "0" ] || std="DOWN"
+    echo "spdu-${targetTag}: service ${targetName}/${targetIP} is now ${std} (${1})"
+}
+
+# This functions is used to report events by email
+# used it as "report <bool>" where <bool> tells if the service is up.
+# Returns some error if cURL could not send the email
+# Expects the following variables to be properly set, besides ${curl}:
+# - 
+report()
+{
+    local sbh="WARNING"
+    local sta="DOWN"
+    local eve="has stopped responding (exit code ${1})"
+    local act="removed"
+    local pst="up"
+    if [ ${1} -eq "0" ]
+    then
+        sbh="NOTICE"
+        sta="up"
+        eve="returned to respond"
+        act="added"
+        pst="down"
+    fi
+    {
+        echo "From: \"Robot SPDU on ${myTag}\" <${mailFrom}>"
+        echo 'To:' "${mailTo}"
+        echo -n 'Date: '
+        TZ=UTC LC_TIME=C ${date} '+%a, %d %b %Y %T %z'
+        echo "Subject: ${sbh}: Server ${targetTag} is ${sta}".
+        echo
+        echo "Hello,"
+        echo
+        echo "this is robot SPDU running on ${myTag}."
+        echo 
+        echo "The server ${targetName} at IP ${targetIP} ${eve}"
+        echo "to the requests for ${probeURI}."
+        echo
+        echo "It was ${pst} since ${lastChange}."
+        echo
+        echo "I have ${act} the address ${targetIP} in the RRset ${poolName}"
+        echo "on the nameserver at ${nameServer}."
+        echo
+        echo "Don't panic and bring the towel!"
+        echo
+    } | ${curl} --disable --silent \
+        ${smtpOptions} \
+        --mail-from ${mailFrom} \
+        --mail-rcpt-allowfails \
+        ${mailRCPTarg} \
+        --url ${smtpURI} \
+        -T -
+    lastChange=`${date} -u "+%Y-%m-%d at %H:%M:%S UTC"`
+}
+
+# MAIN script loop
+# Invoke without parameters, this never returns, runs until you kill it
+mainloop()
+{
+    lastChange=`${date} -u "+%Y-%m-%d at %H:%M:%S UTC"`
+    lastChange+=" (when I was started)"
+
+    probe
+    state=$?
+
+    echo "spdu-${targetTag}: pid $$ monitoring ${targetName}/${targetIP}"
+
+    # Main loop
+    while true # ... do you really want to live forever, forever young...
+    do
+        # Update the pool and log also at startup time
+        pool ${state}
+        log ${state}
+
+        # Sleep until the state changes
+        while true
+        do
+            ${sleep} ${loopWait}
+            probe
+            newstate=$?
+            [ ${newstate} -eq ${state} ] || break
+        done
+        state=${newstate}
+
+        # Report event by email only on actual changes
+        report ${state}
+    done
+    # Never reached, never returns
+}
+
+#####################
+# INITIALIZATION
+
+# First of all set up the static paths for all the non-builtin
+# tools we use, I do so because I am paranoid, I do it here because
+# these are needed in a very early stage and I see no reason
+# they should be changed in the setup file[s]; you might still
+# override these in the setup but... they might have been already
+# used, so better think twice before doing so.
+# If you want to mess with this script or try to port to different
+# platformw please be aware that these MUST BE POSIX COMPLIANT.
+ls="/bin/ls"
+date="/bin/date"
+
+# These static paths are NOT used before including the configuration
+# but are defined before including it, so you can both override 
+# them safely and/or use in the configuration files, as long as 
+# you do not use them there before overriding.
+hostname="/bin/hostname"
+dig="/usr/local/bin/kdig"
+nsupdate="/usr/local/bin/knsupdate"
+host="/usr/local/bin/khost"
+curl="/usr/local/bin/curl"
+sleep="/bin/sleep"
+
+# At this point we source the configuration file[s], if they exist
+safeSource "/usr/local/etc/spdu.conf"
+[[ ${1} ]] && safeSource "/usr/local/etc/spdu/${1}"
+
+# These are the regexes used to validate hostnames, IPv4 addresses, emails, numbers and URI paths
+# in our internal sanity checks
+fqdnrx='^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)+([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])$'
+iprx='^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$'
+mailrx="^[a-zA-Z0-9.!#$%&'*+/=?^_\`{|}~-]+@[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$"
+intrx="^[1-9][0-9]*$"
+decrx="^0|([1-9][0-9]*)(\.[0-9]+)?$"
+yornrx="^([yY]([eE][sS])?)|([nN][oO]?)$"
+pathrx="^.*$"
+
+# Set defaults for parameters which were not given in conf
+
+# General setup, these should be overridden in spdu.conf (if it's the case)
+# as these should be common for the site
+
+# DOMAIN
+[[ -v domain ]] || domain=`${hostname} -d`
+
+# NAMESERVER
+[[ -v nameServer ]] || nameServer="127.0.0.1"
+[[ -v nameTTL ]] || nameTTL="5"
+
+# EMAIL
+[[ -v mailTo ]] || mailTo=""
+[[ -v myTag ]] || myTag=`${hostname} -s`
+[[ -v smtpRelay ]] || smtpRelay="smtp.${domain}"
+[[ -v smtpSSL ]] || smtpSSL="yes"
+# Look below for smtpPort, smtpUser
+
+# API
+[[ -v apiDomain ]] || apiDomain="${domain}"
+[[ -v apiName ]] || apiName="api"
+
+# PROBE
+[[ -v probePath ]] || probePath="status"
+[[ -v probeTimeout ]] || probeTimeout="2.0"
+[[ -v loopWait ]] || loopWait="2"
+[[ -v probeSSL ]] || probeSSL="no"
+[[ -v probeRetries ]] || probeRetries="3"
+
+# POOL
+[[ -v poolDomain ]] || poolDomain="${domain}"
+[[ -v poolZone ]] || poolZone="pool"
+[[ -v poolName ]] || poolName="api"
+
+# Target, these are specific for each machine/target you monitor,
+# so if you have more than one they should better be set in spdu/target
+[[ -v targetName ]] || targetName="${1}"
+[[ -v targetDomain ]] || targetDomain="${domain}"
+# See below for targetIP
+
+# Check that we actually have a target
+[[ ${targetName} ]] || fail "Target not specified, neither in configuration files nor in the command line"
+
+# Check that the miscellaneous global parameters are sane
+[[ $nameServer =~ ${iprx} ]] || fail "The provided nameServer [${nameServer}] must be an IP address"
+[[ $probePath =~ ${pathrx} ]] || fail "Invalid probePath [${probePath}]"
+[[ $probeTimeout =~ ${decrx} ]] || fail "Invalid probeTimeout[${probeTimeout}], must be a decimal or integer number"
+[[ $loopWait =~ ${intrx} ]] || fail "Invalid loopWait[${loopWait}], must be an integer"
+[[ $nameTTL =~ ${intrx} ]] || fail "Invalid nameTTL[${nameTTL}], must be an integer"
+[[ $probeSSL =~ ${yornrx} ]] || fail "Invalid probeSSL[${probeSSL}], must be literally 'yes' or 'no'"
+[[ $probeRetries =~ ${intrx} ]] || fail "Invalid probeRetries[${probeRetries}], must be an integer"
+
+# Let's build the name variables we will actually use 
+# in the rest of the script
+[[ $targetName =~ \. ]] || targetName="${targetName}.${targetDomain}"
+[[ $poolZone =~ \. ]] || poolZone="${poolZone}.${poolDomain}"
+[[ $poolName =~ \. ]] || poolName="${poolName}.${poolZone}"
+[[ $apiName =~ \. ]] || apiName="${apiName}.${apiDomain}"
+
+# Check that apiName, poolName, poolZone and targetName are reasonable
+# Note that this will fail for fancy Unicode hostnames, live with it or try
+# to write a proper regex for this check
+[[ $apiName =~ ${fqdnrx} ]] || fail "apiName [${apiName}] does not look like a reasonable host name"
+[[ $poolZone =~ ${fqdnrx} ]] || fail "poolZone [${poolZone}] does not look like a reasonable zone name"
+[[ $poolName =~ ${fqdnrx} ]] || fail "poolName [${poolName}] does not look like a reasonable host name"
+[[ $targetName =~ ${fqdnrx} ]] || fail "targetName [${targetName}] does not look like a reasonable host name"
+
+# Find out the IP address of our target, we assume it is only one and it's IPv4,
+# if there is more than one valid IPv4 address then a RANDOM one will be picked!
+if [[ ! -v targetIP ]]
+then
+    for I in `$dig +sh rt -t A ${targetName}`
+    do
+        [[ -v targetIP ]] || [[ $I =~ ${iprx} ]] && targetIP="${I}"
+    done
+    unset I
+fi
+[[ ${targetIP} ]] || fail "Could not find a targetIP [${targetIP}] neither in configuration nor resolving ${targetName}"
+[[ $targetIP =~ ${iprx} ]] || fail "targetIP [${targetIP}] does not look like a valid IPv4 address ${iprx}"
+
+# Extract poolZone from FQDN poolName
+poolZone=${poolName#*.*}
+[[ $poolZone =~ ${fqdnrx} ]] || fail "Oooppss... poolZone [${poolZone}] vanished!"
+
+# Build the URI we will use for probing the service and the IP mapping to pass to cURL
+if [[ ${probeSSL} =~ ^[yY]([eE][sS])?$ ]]
+then
+    probeScheme="https"
+    defaultProbePort="443"
+else
+    probeScheme="http"
+    defaultProbePort="80"
+fi
+[[ -v probePort ]] || probePort="${defaultProbePort}"
+[[ $probePort =~ ${intrx} ]] || fail "Invalid probePort[${probePort}], must be an integer"
+mapIP="${apiName}:${probePort}:${targetIP}"
+probeURI="${probeScheme}://${apiName}:${probePort}/${probePath}"
+
+
+# Short version of target name for logs and messages
+targetTag=${targetName%%.*}
+
+
+# Now let's setup what is needed to send emails
+# Clean up the list of email recipients
+tmpMailTo=""
+tmpMailRCPTarg=""
+for M in ${mailTo}
+do
+    [[ ${M} =~ ${mailrx} ]] || fail "Invalid email address in mailTo [${M}]"
+    tmpMailTo+=", <${M}>"
+    tmpMailRCPTarg+=" --mail-rcpt ${M}"
+done
+unset M
+mailTo=${tmpMailTo:2}
+mailRCPTarg=${tmpMailRCPTarg:1}
+
+# The email address we will send messages from
+[[ -v mailFrom ]] || mailFrom="robot@${domain}"
+[[ $mailFrom =~ ${mailrx} ]] || fail "Invalid mailFrom[${mailFrom}]"
+
+# Build the URI we will use for smtp and the user credentials for authentication
+# and embed all relevant options for cURL in $smtpURI and $smtpOptions
+[[ $smtpRelay =~ ${fqdnrx} ]] || fail "Invalid smtpRelay[${smtpRelay}]"
+[[ $smtpSSL =~ ${yornrx} ]] || fail "smtpSSL must be either 'yes' (default) or 'no'"
+smtpOptions=""
+if [[ ${smtpSSL} =~ ^[yY]([eE][sS])?$ ]]
+then
+    smtpURI="smtps://${smtpRelay}"
+    smtpPortDefault="465"
+    smtpOptions+=" --ssl-reqd"
+else
+    smtpURI="smtp://${smtpRelay}"
+    smtpPortDefault="25"
+fi
+[[ -v smtpPort ]] || smtpPort="${smtpPortDefault}"
+[[ $smtpPort =~ ${intrx} ]] || fail "Invalid smtpPort[${smtpPort}], must be integer"
+smtpURI+=":${smtpPort}"
+[[ -v smtpUser ]] || smtpUser="${mailFrom}"
+[[ -z ${smtpPassword} ]] || smtpOptions+=" -u ${smtpUser}:${smtpPassword}"
+
+
+# Now we do not need these variables anymore: keep the universe clean! :)
+unset poolDomain
+unset apiDomain
+unset targetDomain
+unset probePort
+unset defaultProbePort
+
+unset tmpMailTo
+unset tmpMailRCPTarg
+unset smtpPort
+unset smtpRelay
+unset smtpSSL
+unset smtpPortDefault
+unset smtpPassword
+unset smtpUser
+
+unset apiName
+unset probePath
+unset probeSSL
+unset domain
+
+unset fqdnrx
+unset iprx
+unset mailrx
+unset intrx
+unset decrx
+unset yornrx
+unset pathrx
+
+#####################
+# MAIN LOOP
+mainloop
+
+# Unreachable
+
