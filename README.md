@@ -99,19 +99,22 @@ The example setup has two "listen" blocks, a listen block describes both a clien
 
 If some local daemon is dead HAProxy will skip it and route the requests to the remaining ones, if ALL of them are dead HAProxy (in our configuration) will use the backend listed in line `server... backup`, that is: connect using SSL to port 8443 of the %{OTHER} node and route requests there.
 
-We obviously need each site to respond also on port 8443 (SSL) to act as a "backup" for the other one; but we use a separate "listen" block (the one named "listen backup"), because we do not want requests on this block 8080 to be routed back toward the first node (this would create a loop, HAProxy has its own route prevention strategies, but it is a good idea to prevent triggering them). Please note that, we will se in the section about automatically updating DNS, you *must* have this listener in place for plain HTTP requests on port 8080, so all we added is the "backup" server in the first listen block and the "bind ... ssl" one in the second.
+We obviously need each site to respond also on port 8443 (SSL) to act as a "backup" for the other one; but we use a separate "listen" block (the one named "listen backup"), because we do not want requests on this block to be routed back toward the first node (this would create a loop, HAProxy has its own route prevention strategies, but it is a good idea to prevent triggering them). 
 
 Practically: if all daemons on a machine are down but some is working on the other one and all the rest is working (network, routes, DNS; etc) the site will "gracefully" failover routing all the requests on the $OTHER site; using SSL as we do not want our ISPs see our traffic.
 
-Note that haproxy will monitor which backend daemons are running with periodic probes, by default it simply connects via TCP and considers the daemon running if it accepts the connection, it is much better to have the daemon actively responding to an actual HTTP request; my backends reply to /status with a simple etxt string and thus in the example haproxy.conf I have placed in each "listen" block an `option httpchk GET /status`.
+Please note that, as we will se in the section about automatically updating DNS, you *must* have this listener in place for plain HTTP requests on port 8080, so all we added is the "backup" server in the first listen block and the "bind ... ssl" one in the second: we obtained a significative improvement in redundancy for a very cheap cost.
 
-If your software does not support something similar you can stick to TCP probing from HAProxy, but we will see that also spdu (described below) needs to probe the services and this MUST be an active probe, that is: spdu wants to connect to an HTTP server which must reply with something when asked for a certain path, which defaults to "/status"; if you cannot do anything better you can have HAProxy handle this request and answer "Cucu I am alive" to "http://api.domain.tld/status", this is NOT very good as we will consider "alive" a node where haproxy is happily running but the actual backend daemons are dead... but if you want to do so the way is something like:
+Note that haproxy will monitor which backend daemons are running with periodic probes, by default it simply connects via TCP and considers the daemon running if it accepts the connection, it is much better to have the daemon actively responding to an actual HTTP request; my backends reply to /status with a simple text string and thus in the example haproxy.conf I have placed in each "listen" block an `option httpchk GET /status`.
+
+If your software does not support something similar you can stick to TCP probing from HAProxy, but we will see that also spdu (described below) needs to probe the services and this MUST be an active probe, that is: spdu wants to connect to an HTTP server which must reply with something when asked for a certain path, which defaults to "/status".
+
+If you cannot do anything better you can have HAProxy handle this request and answer "Cucu I am alive" to "http://api.domain.tld/status", this is NOT very good as we will consider "alive" a node where haproxy is happily running but the actual backend daemons are dead... but if you want to do so the way is something like:
 ```
     http-request return status 200 content-type text/plain lf-string "Have a nice day\n" if { path /status }
 ```
 
-
-Finally this setup will blindly rewrite the host part of any http/https request to be $SITE, that is api.domain.tld in our domain; this makes things easier if your backend daemon expects so and uou want to test using curl on IPs or single host names.
+Finally, this setup will blindly rewrite the host part of any http/https request to be $SITE, that is api.domain.tld in our domain; this makes things easier if your backend daemon expects so and you want to test using curl on IPs or single host names.
 
 To make the long story short: install haproxy and enable it, create it's user and directory, place the haproxy.conf file attached into /usr/local/etc on each node, edit properly the variables MYSELF, OTHER and SITE, start it and read below about the variable THUMB and the lines containing "ssl" which are commented. That's it.
 
