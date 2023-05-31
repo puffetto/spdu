@@ -250,6 +250,8 @@ No need to say that if you have more than two sites/machines things do not chang
 
 To update the certificates certbot already comes with its own (ugly, but decently working) periodic script, all you need is enable it in /etc/periodic.conf with the proper options; find attached an example periodic.conf that will also shut down the attempts of other periodic scripts to flood you by email (you disabled sendmail? didn't you? did they tell that sendmail_enable="NONE" in /etc/rc.conf is mandatory for your mental health? did you know that sendmail sucks almost as much as systemd?).
 
+Once those two lines are in periodic.conf certbot will run weekly and every time check for certificate expiration dates, it will then update the certificates which are due to expire in less than 30 days; as Let's encrypt certificates have 90 days of expiration by default this means that the certificates will be renewed every two months and, if something goes wrong, certbot will retry at least 4 more times (once every weeek) before actual expiration. Fair enough.
+
 # SECURITY NOTES
 
 It is important that one understands what he is doing, so please read carefully this part.
