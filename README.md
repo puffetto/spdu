@@ -73,6 +73,10 @@ Really: you might have each site run even an hardware load balancer, in that cas
 
 Besides "portinstall haproxy" and placing a 'haproxy_enable="YES"' in rc.conf, all you need is a configuration file in /usr/local/etc/haproxy.conf, in this directory you find our example. Some tricks/notes on this configuration follow.
 
+You will not want HAProxy to run as root, so create an user for it, by adding this line in vipw:
+`haproxy:*:8080:8080::0:0:HAProxy:/var/haproxy:/sbin/nologin`
+Then give it a group by adding `haproxy:*:8080:` in /etc/group and create an "home" directory for it with `mkdir /var/haproxy; chown haproxyhaproxy /var/haproxy; chmod 755 /var/haproxy`, this is all about HAProxy installation.
+
 As said I have five copies of my daemon, listening all only on localhost on ports 4441-4445; all this configuration does is:
 1. Listen on public port 80 (and 443 with SSL) and balance the load on the five locale daemons
 2. Skip/ignore dead instances (note that they are all marked "check")
@@ -90,9 +94,17 @@ We obviously need each site to respond also on port 9443 (SSL) to act as a "back
 
 Practically: if all daemons on a machine are down but some is working on the other one and all the rest is working (network, routes, DNS; etc) the site will "gracefully" failover routing all the requests on the $OTHER site; using SSL as we do not want our ISPs see our traffic.
 
+Note that haproxy will monitor which backend daemons are running with periodic probes, by default it simply connects via TCP and considers the daemon running if it accepts the connection, it is much better to have the daemon actively responding to an actual HTTP request; my backends reply to /status with a simple etxt string and thus in the example haproxy.conf I have placed in each "listen" block an `option httpchk GET /status`.
+
+If your software does not support something similar you can stick to TCP probing from HAProxy, but we will see that also spdu (described below) needs to probe the services and this MUST be an active probe, that is: spdu wants to connect to an HTTP server which must reply with something when asked for a certain path, which defaults to "/status"; if you cannot do anything better you can have HAProxy handle this request and answer "Cucu I am alive" to "http://api.domain.tld/status", this is NOT very good as we will consider "alive" a node where haproxy is happily running but the actual backend daemons are dead... but if you want to do so the way is something like:
+```
+    http-request return status 200 content-type text/plain lf-string "Have a nice day\n" if { path /status }
+```
+
+
 Finally this setup will blindly rewrite the host part of any http/https request to be $SITE, that is api.domain.tld in our domain; this makes things easier if your backend daemon expects so and uou want to test using curl on IPs or single host names.
 
-To make the long story short: install haproxy and enable it, place the haproxy.conf file attached into /usr/local/etc on each node, edit properly the variables MYSELF, OTHER and SITE, start it and read below about the variable THUMB and the lines containing "ssl" which are commented. That's it.
+To make the long story short: install haproxy and enable it, create it's user and directory, place the haproxy.conf file attached into /usr/local/etc on each node, edit properly the variables MYSELF, OTHER and SITE, start it and read below about the variable THUMB and the lines containing "ssl" which are commented. That's it.
 
 ### Set up DNS
 
@@ -129,12 +141,43 @@ api.pool.domain.tld has address 5.6.7.8
 blackye@undici ~ % 
 ```
 
-At this point we are done with the "normal operations", we have to handle site failures.
+At this point we are done with the "normal operations", we have to handle site failures: this is what spdu is for.
 
+### Set up SPDU
 
+The spdu "daemon" does the job we want: it monitors a server by polling it once every a while, if the server does not respond properly it removes its IP address from the DNS, when it comes back online it adds back the IP. As simple as that.
 
+As any educated daemon it comes with its rc.d script (did I say that systemd sucks?) and it even supports multiple instances (called "targets").
 
+First of all let's take a look at spdu itself.
 
+You can start it with no parameters or with exactly one parameter; if you specify one parameter that is going to be the name of the target server (the one monitored), if you start it without parameters the targetName *must* be specified in the configuration.
+
+The configuration is read in /usr/local/etc/spdu.conf (if it exists), then if you specified a target in the command line things can be overridden in /usr/local/etc/spdu/targetName.
+
+The spdu.conf example file is very well documented: find all the possible parameters and their default values there.
+
+As a matter of fact for the scenario described here... all the defaults are adeguate, and you might not even have a configurayion file :D
+
+This remains true as long as:
+- The machine you run spdu on is properly configured (i.e. "hostname" says alpha.domain.tld)
+- The machine you want to monitor is in the same domain (i.e. beta.domain.tld)
+- Your "api" is called... api (api.domain.tld) and responds on the default port
+- Your "pool" is called again api in the "pool" subzone, like in this example setup: api.pool.domain.tld
+- The DNS you want to update is at 127.0.0.1
+
+If you want spdu to send you email notifications, besides placing your address(es) in mailTo, you might need to specity an smtp server (if it is not smtp.domain.com) and a password (if your smtp does not relay without authentication from your machines' IPs).
+
+That's it. You can have alpha monitor beta and update its own DNS by simply running "spdu beta" there, on beta you will have to run "spdu alpha"; in this way it will run in foreground and show on the terminal what happens.
+
+As said the kid comes with its nice rc.d script, just place it in /usr/local/etc/rc.d/spdu and it will run spdu under the control of /usr/sbin/daemon, sending the output to syslog. All is needed is a spdu_enable="YES" and a spdu_name="alpha" (or "beta") in /etc/trc.conf. I do not remember if I already said that systemd sucks. Did I?
+
+You might need to monitor more than one server, in example if you have three nodes named alpha, beta and delta you will want spdu on alpha monitor both beta and delta, this is the way in rc.conf:
+```
+spdu_enable=YES
+spdu_targets="beta delta"
+```
+You can even use a server name that is different from the target name, like spdu_delta_name="delta.someotherdomain.tld", which might be useful if you have to use FQDNs for names (it's definitvely a bad idea to have a target name long and with dots in it...), whatever is in the specific spdu_target_name (wich defaults to "target") will be passed to spdu.
 
 ### Set up SSL certificates
 
