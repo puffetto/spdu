@@ -256,7 +256,9 @@ Once those two lines are in periodic.conf certbot will run weekly and every time
 
 It is important that one understands what he is doing, so please read carefully this part.
 
-First: we are doind stateless challenging for SSL certificates, this means that all our machines will happily reply bingo.THUMBPRINT to anyone requesting it, at any time. Someone will yell that RFC8555 states "Clients SHOULD NOT respond to challenges until they believe that the server's queries will succeed" and then "The client SHOULD de-provision the resource provisioned for this challenge once the challenge is complete".
+First: we are doing stateless challenging for SSL certificates, this means that all our machines will happily reply bingo.THUMBPRINT to anyone requesting it, at any time. 
+
+Someone will yell that RFC8555 states "Clients SHOULD NOT respond to challenges until they believe that the server's queries will succeed" and then "The client SHOULD de-provision the resource provisioned for this challenge once the challenge is complete".
 
 It is bullshit. RFCs have a precise jargon and in this jargon "SHOULD" is not "MUST". Actually "SHOULD" means "We adice you to do it this way unless you know what you are doing". We know what we are doing: we reply to any request from anyone at any time with the Thumbprint. 
 
