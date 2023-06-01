@@ -43,7 +43,7 @@ As said I will assume some things here, your setup might be different but this w
 3. My services run on FreeBSD and are behing HAProxy, which scatters the requests on a cluster of daemons
 4. SSL is taken care of by HAProxy and certificates are from Let's encrypt
 5. The "static" part of the DNS is taken care elsewhere (either by some ISP or by your redundant setup with authoritative servers on different networks... isn't it?).
-6. I have two sites answering the requests, you could have more and it is pretty simple to take that in count, but the point here is not having 100 nodes for load handling, is having more than one site for redundancy, maybe 3 makes still sense, four if definitively overshooting.
+6. I have two sites answering the requests, you could have more and it is pretty simple to take that in count, but the point here is not having 100 nodes for load handling, is having more than one site for redundancy, maybe 3 makes still sense, four is definitively overshooting.
 7. I am handling reasonable requests in a reasonable world. Up to 5-10 seconds of unavailability to fail over from one site to the other is considered reasonable: automated processes should have retry/timeout policies and humans can deal with it: even Facebook sometimes freezes, if reloading the page after a few seconds work the users lives with it and the "failure" is not even noticed in the records.
 8. I assume that youir machines/nodes can be reached, if your hosting site has firewall policies in place ensure that, at least, you get inbound TCP connections on ports 80, 443 and 42, you can connect to external TCP (including smtp, submission, etc...) and that you get UPD requests on port 42 and can reply. All this is far from obvious, expecially on Hetzner.
 
