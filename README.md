@@ -12,7 +12,7 @@ Sites DO have failures. It is quite common to put services behind load balancers
 
 You can do a very good job in having that IP served by something extremely stable (like HAProxy) and then spread the requests to redundant backends, but when that IP becomes unreachable your service will be unreachable.
 
-Experience says that this is, after human error, the second reason for services going down. It can be a datacenter power failure, an ISP's broken routing, your provider suspending the service because PayPal failed to promptly process a payment, a scheduled maintenance for which you oversaw the email notification, whatever: it happens, and it happens quite often.
+Experience says that this is, after human error, the second reason for services going down. It can be a datacenter power failure, an ISP's broken routing, your provider suspending the service because PayPal failed to promptly process a payment, a scheduled maintenance for which you oversaw the email notification, whatever: it happens, and it happens more often than you expect.
 
 ### The solution.
 
@@ -24,20 +24,15 @@ My definition of availability is "above five nines and with less than 20 seconds
 
 One site with four-nines availability is (unexpectedly) down for 8 hours per year, and this may hurt; five nines is still five minutes per year and this might or might not be ok; on the other side two redundant sites which are COMPLETELY independent and have *only* 99,9% availability are expected to be both down for less than 30 seconds per year; two sites at four nines are already in the realm of milliseconds per year of unavailability.
 
-To do this you have to deal with two issues: your clients must be able to find the IP of the site able to respond in a given moment and they have to be able to verify that this is you (yeah... SSL), here you will find some advice and some scripts to implement it.
+To do this you have to deal with two issues: your clients must be able to find the IP of the site able to respond in a given moment and they have to be able to verify that this is you (yeah... I'l talking about SSL).
 
-### The goals
-
-As security matters as much as availability I have some additional goals in mind in what follows:
-- The sites must be independent: no machine at a site can write stuff on machines at another nor can read private stuff there
-- No third "robot" can have private keys to access anything at all the sites
-- Nothing can write the main DNS zone
+Here you will find some advice and some scripts to implement it.
 
 # HOWTO
 
 ### Introduction.
 
-As said I will assume some things here, your setup might be different but this will not change the principles:
+I will assume some things in what follows, your setup might be different but this will not change the principles:
 1. We are talking about HTTP services (being them pages, SOAP, REST, ... whatever), over SSL, stateless.
 2. If your backend is not stateless you will need to take care of node affinity and/or shared storage/databases; this is beyond the scope of this note.
 3. My services run on FreeBSD and are behing HAProxy, which scatters the requests on a cluster of daemons
@@ -56,7 +51,7 @@ In the examples:
 4. The two machines are named alpha.domain.tld (1.2.3.4) and beta.domain.tld (5.6.7.8)
 5. De facto the two "sites" are two machines each running "everything" (HAProxy, SSL stuff, services, DNS, ...)
 6. The actual services are five daemons listening on local address at ports 4441-4445
-7. I want to respond to calls to https://api.domain.tld/something that is: our "redundant" hostname is api.domain.tld using standard ports (80 plan, 443 SSL).
+7. I want to respond to calls to https://api.domain.tld/something that is: our "redundant" hostname is api.domain.tld using standard ports (80 plain, 443 SSL).
 8. I keep by TTLs quite short (usually seconds)
 
 The point on the above "5." is that, again, we are not talking about load scalability or about service probing here, we are talking about site redundancy, and only that.
@@ -65,11 +60,11 @@ In your actual setup you might have 100 computing nodes behind the IP at each si
 
 What remains your responsibility in this setup is everything that is within the site: I assume that "if some service at the site [machine] is down the entire site [machine] is down", I assume that you have your ways to keep the services up and responsive IF the site [machine] is up and reachable, nothing here probes the single services.
 
-On each machine install:
+On each machine you will want to preinstall:
 - Your services, whatever they are
 - A few components we will use: portinstall haproxy knot3 bash curl ca_root_nss security/py-certbot 
 
-IMPORTANT note about bash: For my own convenience I install a static link version of bash in /bin/bash which gets into /etc/shells and the normal dynamic link one in /usr/local/bin/bash as the port does; to do so I get into /usr/ports/shells/bash, make install, ask for static link in the configuration, cp /usr/local/bin/bash /bin/bash, make distclean, and finally make install with the default configuration; explaining why I want a static link bash in /bin/bash is beyond the scope of this note, if you don't like it just edit all the scripts I provide changing the first line from "#! /bin/bash" into "#! /wherever/is/located/your/bash".
+_IMPORTANT_ note about bash: For my own convenience I install a static link version of bash in /bin/bash which gets into /etc/shells and the normal dynamic link one in /usr/local/bin/bash as the port does by default; to do so I get into /usr/ports/shells/bash, `make install`, ask for static link in the configuration, `cp /usr/local/bin/bash /bin/bash`, `make distclean`, and finally `make install` with the default configuration; explaining why I want a static link bash in /bin/bash is beyond the scope of this note, if you don't like it just edit all the scripts I provide changing the first line from "#! /bin/bash" into "#! /wherever/is/located/your/bash".
 
 ### Set up HAProxy
 
@@ -83,8 +78,12 @@ Really: you might have each site run even an hardware load balancer, in that cas
 Besides "portinstall haproxy" and placing a 'haproxy_enable="YES"' in rc.conf, all you need is a configuration file in /usr/local/etc/haproxy.conf, in this directory you find our example. Some tricks/notes on this configuration follow.
 
 You will not want HAProxy to run as root, so create an user for it, by adding this line in vipw:
+
 `haproxy:*:8080:8080::0:0:HAProxy:/var/haproxy:/sbin/nologin`
-Then give it a group by adding `haproxy:*:8080:` in /etc/group and create an "home" directory for it with `mkdir /var/haproxy; chown haproxyhaproxy /var/haproxy; chmod 755 /var/haproxy`, this is all about HAProxy installation.
+
+Then give it a group by adding `haproxy:*:8080:` in /etc/group and create an "home" directory for it with `mkdir /var/haproxy; chown haproxy:haproxy /var/haproxy; chmod 755 /var/haproxy`.
+
+This is all about HAProxy installation.
 
 As said I have five copies of my daemon, listening all only on localhost on ports 4441-4445; all this configuration does is:
 1. Listen on public port 80 (and 443 with SSL) and balance the load on the five locale daemons
@@ -94,20 +93,20 @@ As said I have five copies of my daemon, listening all only on localhost on port
 
 Let me explain point 4 above.
 
-As said handling application level availability is beyond the scope of this note, however something very simple and quite effective can be done here as is easily done by HAProxy.
+As said handling application level availability is beyond the scope of this note, however something very simple and quite effective can be done here as it is easily done by HAProxy.
 The example setup has two "listen" blocks, a listen block describes both a client listener and a backend pool of servers; the first block listens on standard 80 and 443 ports (for SSL) and routes the calls on the five daemons running locally on ports 4441-4445, each backend server is marked "check", meaning that HAProxy will periodically try to connect to the daemons to check if they are alive. HAProxy can perform much deeper and more accurate tests than just connecting, but you will have to look at its documentation for that.
 
-If some local daemon is dead HAProxy will skip it and route the requests to the remaining ones, if ALL of them are dead HAProxy (in our configuration) will use the backend listed in line `server... backup`, that is: connect using SSL to port 8443 of the %{OTHER} node and route requests there.
+If some local daemon is dead HAProxy will skip it and route the requests to the remaining ones, if ALL of them are dead HAProxy (in our configuration) will use the backend listed in line `server... backup`, that is: connect using SSL to port 8443 of the $OTHER node and route requests there.
 
-We obviously need each site to respond also on port 8443 (SSL) to act as a "backup" for the other one; but we use a separate "listen" block (the one named "listen backup"), because we do not want requests on this block to be routed back toward the first node (this would create a loop, HAProxy has its own route prevention strategies, but it is a good idea to prevent triggering them). 
+We obviously need each site to respond also on port 8443 (SSL) to act as a "backup" for the other one; but we use a separate "listen" block (the one named "listen backup"), because we do not want requests on this block to be routed back toward the first node (this would create a loop, HAProxy has its own route prevention strategies, but it is a good idea to avoid triggering them). 
 
 Practically: if all daemons on a machine are down but some is working on the other one and all the rest is working (network, routes, DNS; etc) the site will "gracefully" failover routing all the requests on the $OTHER site; using SSL as we do not want our ISPs see our traffic.
 
-Please note that, as we will se in the section about automatically updating DNS, you *must* have this listener in place for plain HTTP requests on port 8080, so all we added is the "backup" server in the first listen block and the "bind ... ssl" one in the second: we obtained a significative improvement in redundancy for a very cheap cost.
+Please note that, as we will see in the section about automatically updating DNS, you *must* have this listener in place for plain HTTP requests on port 8080 in any case, so all we added is the "backup" server in the first listen block and the "bind ... ssl" one in the second: we obtained a significative improvement in redundancy for a very cheap cost.
 
 Note that haproxy will monitor which backend daemons are running with periodic probes, by default it simply connects via TCP and considers the daemon running if it accepts the connection, it is much better to have the daemon actively responding to an actual HTTP request; my backends reply to /status with a simple text string and thus in the example haproxy.conf I have placed in each "listen" block an `option httpchk GET /status`.
 
-If your software does not support something similar you can stick to TCP probing from HAProxy, but we will see that also spdu (described below) needs to probe the services and this MUST be an active probe, that is: spdu wants to connect to an HTTP server which must reply with something when asked for a certain path, which defaults to "/status".
+If your software does not support something similar you can stick to TCP probing from HAProxy and drop that line, but we will see that also spdu (described below) needs to probe the services and this MUST be an active probe, that is: spdu wants to connect to an HTTP server which must reply with something when asked for a certain path, which defaults to "/status".
 
 If you cannot do anything better you can have HAProxy handle this request and answer "Cucu I am alive" to "http://api.domain.tld/status", this is NOT very good as we will consider "alive" a node where haproxy is happily running but the actual backend daemons are dead... but if you want to do so the way is something like:
 ```
@@ -143,9 +142,9 @@ Take note that the last field in the SOA record into pool.domain.tld.zone is ONL
 
 Everything else in the SOA recordo is IGNORED in our setup, as we do not use DNS zone transfers, it MUST be ignored as nothing in the RFCs allow any use of that information. 
 
-Side note: Yes: you can have more than one "master" server for a zone; DNS itself, in the name resolution process, does not even have an idea about what a "master" and a "slave" server is, there are only "uathoritative" and "cache" servers; all our nodes are "authoritative servers", the resolution protocol is politically correct, stuff like "serial", "mname", "rname", "refresh", "retry" and "expire" MUST be ignored by clients, except the saide use for "expire" (time to cache ythe negative "No records" reply"); the field "aname" *might* bne usde by an human to contact the responsible for the doiman... would you expect a reply? :D
+Side note: Yes: you can have more than one "master" server for a zone; DNS itself, in the name resolution process, does not even have an idea about what a "master" and a "slave" server is; there are only "authoritative" and "cache" servers; all our nodes are "authoritative servers", the resolution protocol is politically correct, stuff like "serial", "mname", "rname", "refresh", "retry" and "expire" MUST be ignored by clients, except the saide use for "expire" (time to cache ythe negative "No records" reply"); the field "aname" *might* be usde by an human to contact the responsible for the doiman but... would you expect a reply? :D
 
-That's it: you can have more than an "authoritative" server for a zone, as the concept of "authoritaive" applies only to DNA zone transfers (which you are not obliged to use) and all the content of the "SOA" record is bullshit besides the last field ("[negative] expire").
+That's it: you CAN have more than an "authoritative" server for a zone, as the concept of "authoritaive" applies only to DNA zone transfers (which you are not obliged to use, and in fact we do NOT use) and all the content of the "SOA" record is bullshit except the last field ("[negative] expire").
 
 If everything is ok on any machine of the world you will have this working:
 ```
@@ -168,19 +167,21 @@ First of all let's take a look at spdu itself.
 
 You can start it with no parameters or with exactly one parameter; if you specify one parameter that is going to be the name of the target server (the one monitored), if you start it without parameters the targetName *must* be specified in the configuration.
 
-The configuration is read in /usr/local/etc/spdu.conf (if it exists), then if you specified a target in the command line things can be overridden in /usr/local/etc/spdu/targetName.
+The configuration is read from /usr/local/etc/spdu.conf (if it exists), then if you specified a target in the command line things can be overridden in /usr/local/etc/spdu/targetName.
 
-Note that the configuration files for spdu (both spdu.conf and the ones in spdu/target) MJUST be owned by root and MUST NOT be writeable by anyone else than root, or spdu will *refuse* to start.
+targetName (and every -Name parameter of spdu) can be a fully qualified hostname (but do not terminate in with a trailig dot!) or a "simple" name not containing ANY dot, if it does not contain any dot it is competed with targetDomain which defaults to domain which on its behalf defaults to 'hostname -d'; the same logic applies also to all "names" (apiName, poolName, ...).
+
+Note that the configuration files for spdu (both spdu.conf and the ones in spdu/target) MUST be owned by root and MUST NOT be writeable by anyone else than root, or spdu will *refuse* to start.
 
 The spdu.conf example file is very well documented: find all the possible parameters and their default values there.
 
-As a matter of fact for the scenario described here... all the defaults are adeguate, and you might not even have a configurayion file :D
+As a matter of fact for the scenario described here... all the defaults are adeguate, and you might not even have a configuration file :D
 
 This remains true as long as:
 - The machine you run spdu on is properly configured (i.e. "hostname" says alpha.domain.tld)
 - The machine you want to monitor is in the same domain (i.e. beta.domain.tld)
 - Your "api" is called... api (api.domain.tld) and responds on the default port
-- Your "pool" is called again api in the "pool" subzone, like in this example setup: api.pool.domain.tld
+- Your "pool" is called again api and lives in the "pool" subzone of the same domain, like in this example setup: api.pool.domain.tld
 - Your service replies with some text at the URI http://api.domain.tld/status; any answer is ok, as long as it's an HTTP 200 response.
 - The DNS you want to update is at 127.0.0.1
 
@@ -195,11 +196,9 @@ You might need to monitor more than one server, in example if you have three nod
 spdu_enable=YES
 spdu_targets="beta delta"
 ```
-You can even use a server name that is different from the target name, like spdu_delta_name="delta.someotherdomain.tld", which might be useful if you have to use FQDNs for names (it's definitvely a bad idea to have a target name long and with dots in it...), whatever is in the specific spdu_target_name (wich defaults to "target") will be passed to spdu.
+You can even use a server name that is different from the target name, like spdu_delta_name="delta.someotherdomain.tld", which might be useful if you have to use FQDNs for names (it's actually not a very goot idea to have a target name long and with dots in it...), whatever is in the specific spdu_target_name (wich defaults to "target") will be passed to spdu.
 
-Finally, as it is never a good idea to run stuff as root, you can tell rc to run spdu as some unpriviledged user (I decided to "reuse" knot, which is the user runnning the DNS), just add to rc.conf: `spdu_user="knot"`.
-
-Take note that this user must be allowed to read the spdu configuration file(s) and write the directory /var/run/spdu.
+Finally, you still should not run stuff as root, you can tell rc to run spdu as some unpriviledged user (I decided to "reuse" knot, which is the user runnning the DNS), just add to rc.conf: `spdu_user="knot"`. Take note that this user must be allowed to read the spdu configuration file(s) and write the directory /var/run/spdu: `chown knot:knot /var/run/spdu; chmod 755 /var/run/spdu; chmod 644 /usr/local/etc/spdu.conf /usr/local/etc/sodu/*`
 
 ### Set up SSL certificates
 
@@ -271,11 +270,11 @@ We know what we are doing: we reply to any request from anyone at any time with 
 
 Is this a problem? No. It's not.
 
-1. The thumbprint is all but a secret, at any renewal it will fly back and forth on the network in plain HTTP (no SSL)
+1. The thumbprint is all but a secret, at any renewal it will fly back and forth on the network in plain HTTP (no SSL) anyways
 2. A malicious actor might simply be patient enough and keep asking for it: sooner or later he would get the moment when certificates are being renewed
-3. The Thumbprint is an (irreversible) HASH of the PUBLIC key of the account. HASH, PUBLIC KEY. Says something? It is not a secret, it is not a private key, it is not even something from which you can derive the public key.
+3. The Thumbprint is an (irreversible) HASH of the PUBLIC key of the account. HASH, PUBLIC KEY. Says something? It is not a secret, it is not a private key, it is not even something from which you can derive the public key, forget about the private one.
 
-The second objection could be that we are permanently replying to challenges. 
+The second objection could be that we are permanently replying to challenges.
 
 Could this be exploited somehow? No. It cannot.
 
@@ -292,9 +291,5 @@ A second securiy issue is related to the DNS: we allow anyone to update the RRSe
 
 Well, if you do then feel free to have fun setting up authentication for a script updating a DNS server on the same machine; but also remember to secure properly the oplace where the script reads the key as... anything but 600 would put you back in trouble.
 
-
-
-
-
-
+Really: noone besides you and your staff should have a shell acccess on production servers. Period.
 
