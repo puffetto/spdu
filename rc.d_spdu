@@ -82,7 +82,7 @@ fi
 
 command_args="-S -f -P ${pidfile} ${dscript} ${spdu_name}"
 
-if [ -n ${target} ]
+if [ -n "${target}" ]
 then
 	run_rc_command "$1" | /usr/bin/sed -e "s_^_[target=${target}] _"
 else
