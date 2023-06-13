@@ -17,6 +17,9 @@
 # When targets are specified, the non-target specific parameters become defaults,
 # except for spdu_target_name which will default to "target"
 #
+# This is inspired by and largely copied from
+# https://svnweb.freebsd.org/ports/head/www/fcgiwrap/files/fcgiwrap.in?revision=307542&view=co
+# 
 # Example:
 #
 # spdu_enable="YES"
