@@ -260,7 +260,7 @@ Once those two lines are in periodic.conf certbot will run weekly and every time
 
 It is important that one understands what he is doing, so please read carefully this part.
 
-First: we are doing stateless challenging for SSL certificates, this means that all our machines will happily reply bingo.THUMBPRINT to anyone requesting it, at any time. 
+First: we are doing stateless challenging for SSL certificates, this means that all our machines will happily reply bingo.THUMBPRINT to anyone requesting `/.well-known/acme-challenge/bingo`, at any time. 
 
 Someone will yell that RFC8555 states "Clients SHOULD NOT respond to challenges until they believe that the server's queries will succeed" and then "The client SHOULD de-provision the resource provisioned for this challenge once the challenge is complete".
 
