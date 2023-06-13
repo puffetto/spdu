@@ -1,5 +1,4 @@
 #! /bin/sh
-# Put this is /usr/local/etc/rc.d/spdu
 
 # $FreeBSD$
 #
@@ -17,10 +16,7 @@
 # spdu rc.d script supports multiple targets (a-la rc.d/nginx)
 # When targets are specified, the non-target specific parameters become defaults,
 # except for spdu_target_name which will default to "target"
-# 
-# This is inspired by and largely copied from
-# https://svnweb.freebsd.org/ports/head/www/fcgiwrap/files/fcgiwrap.in?revision=307542&view=co
-# 
+#
 # Example:
 #
 # spdu_enable="YES"
@@ -30,6 +26,7 @@
 
 name="spdu"
 rcvar=spdu_enable
+
 
 pidprefix="/var/run/spdu/spdu"
 pidfile="${pidprefix}.pid"  # May be a different path if targets are in use
@@ -88,4 +85,5 @@ then
 else
 	run_rc_command "$1"
 fi
+
 

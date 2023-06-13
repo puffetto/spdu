@@ -231,10 +231,10 @@ pathrx="^.*$"
 
 # PROBE
 [[ -v probePath ]] || probePath="status"
-[[ -v probeTimeout ]] || probeTimeout="2.0"
+[[ -v probeTimeout ]] || probeTimeout="3.0"
 [[ -v loopWait ]] || loopWait="2"
 [[ -v probeSSL ]] || probeSSL="no"
-[[ -v probeRetries ]] || probeRetries="3"
+[[ -v probeRetries ]] || probeRetries="5"
 
 # POOL
 [[ -v poolDomain ]] || poolDomain="${domain}"
@@ -383,4 +383,5 @@ unset pathrx
 mainloop
 
 # Unreachable
+
 
