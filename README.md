@@ -1,5 +1,5 @@
 # spdu
-Service Probe and DNS Updater
+Service Probe and DNS Updater.
 
 This toolkit provides example configuration files and scripts aimed at deploying a multi-site service using DNS to (roughly) balance load and implement automatic failover.
 The examples assume that you run your services on FreeBSD and shield them behing HAProxy, but the concepts, examples and escripts can be easily adapted to different setups.
