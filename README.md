@@ -40,7 +40,7 @@ I will assume some things in what follows, your setup might be different but thi
 5. The "static" part of the DNS is taken care elsewhere (either by some ISP or by your redundant setup with authoritative servers on different networks... isn't it?).
 6. I have two sites answering the requests, you could have more and it is pretty simple to take that in count, but the point here is not having 100 nodes for load handling, is having more than one site for redundancy, maybe 3 makes still sense, four is definitively overshooting.
 7. I am handling reasonable requests in a reasonable world. Up to 5-10 seconds of unavailability to fail over from one site to the other is considered reasonable: automated processes should have retry/timeout policies and humans can deal with it: even Facebook sometimes freezes, if reloading the page after a few seconds work the users lives with it and the "failure" is not even noticed in the records.
-8. I assume that youir machines/nodes can be reached, if your hosting site has firewall policies in place ensure that, at least, you get inbound TCP connections on ports 80, 443 and 42, you can connect to external TCP (including smtp, submission, etc...) and that you get UPD requests on port 53 and can reply. All this is far from obvious, expecially on Hetzner.
+8. I assume that youir machines/nodes can be reached, if your hosting site has firewall policies in place ensure that, at least, you get inbound TCP connections on ports 80, 443 and 53, you can connect to external TCP (including smtp, submission, etc...) and that you get UDP requests on port 53 and can reply. All this is far from obvious, expecially on Hetzner.
 
 ### Prerequisites.
 
@@ -203,7 +203,7 @@ spdu_targets="beta delta"
 ```
 You can even use a server name that is different from the target name, like spdu_delta_name="delta.someotherdomain.tld", which might be useful if you have to use FQDNs for names (it's actually not a very goot idea to have a target name long and with dots in it...), whatever is in the specific spdu_target_name (wich defaults to "target") will be passed to spdu.
 
-Finally, you still should not run stuff as root, you can tell rc to run spdu as some unpriviledged user (I decided to "reuse" knot, which is the user runnning the DNS), just add to rc.conf: `spdu_user="knot"`. Take note that this user must be allowed to read the spdu configuration file(s) and write the directory /var/run/spdu: `chown root:wheel /var/run/spdu; chmod 755 /var/run/spdu; chmod 640 /usr/local/etc/spdu.conf /usr/local/etc/spdu/*`
+Finally, you still should not run stuff as root, you can tell rc to run spdu as some unpriviledged user (I decided to "reuse" knot, which is the user runnning the DNS), just add to rc.conf: `spdu_user="knot"`. Take note that this user must be allowed to read the spdu configuration file(s) ; the rc script creates the root-owned PID base and a writable per-target directory. Use `chown root:knot /usr/local/etc/spdu.conf /usr/local/etc/spdu/*; chmod 640 /usr/local/etc/spdu.conf /usr/local/etc/spdu/*`
 
 ### Set up SSL certificates
 
