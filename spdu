@@ -13,7 +13,15 @@ runtime=
 cleanup()
 {
     trap - EXIT
-    if [[ -n $child ]]; then kill -TERM "$child" 2>/dev/null; wait "$child" 2>/dev/null; fi
+    if [[ -n $child ]]; then
+        kill -TERM "$child" 2>/dev/null
+        for ((_spdu_wait=0; _spdu_wait<10; _spdu_wait++)); do
+            kill -0 "$child" 2>/dev/null || break
+            /bin/sleep 0.1
+        done
+        kill -KILL "$child" 2>/dev/null
+        wait "$child" 2>/dev/null
+    fi
     [[ -z $runtime ]] || rm -rf -- "$runtime"
 }
 trap cleanup EXIT
@@ -32,25 +40,25 @@ run()
 # Refuse nontrivial ACLs as well as POSIX group/other write permissions.
 safeSource()
 {
-    local file=$1 path metadata uid mode permissions
-    [[ -e $file || -L $file ]] || return 0
-    path=$(/bin/realpath "$file") || fail "Cannot resolve configuration: $file"
-    [[ -f $path && -r $path ]] || fail "Unreadable/nonregular configuration: $file"
-    file=$path
+    local _spdu_file=$1 _spdu_path _spdu_metadata _spdu_uid _spdu_mode _spdu_permissions
+    [[ -e $_spdu_file || -L $_spdu_file ]] || return 0
+    _spdu_path=$(/bin/realpath "$_spdu_file") || fail "Cannot resolve configuration: $_spdu_file"
+    [[ -f $_spdu_path && -r $_spdu_path ]] || fail "Unreadable/nonregular configuration: $_spdu_file"
+    _spdu_file=$_spdu_path
     while :; do
-        metadata=$(/usr/bin/stat -L -f '%u %Lp' "$path") || fail "Cannot inspect configuration path: $path"
-        read -r uid mode <<< "$metadata"
-        [[ $uid == 0 && $mode =~ ^[0-7]+$ ]] || fail "Configuration path is not root-owned: $path"
-        (( (8#$mode & 022) == 0 )) || fail "Configuration path is writable by others: $path"
-        permissions=$(LC_ALL=C /bin/ls -ld "$path") || fail "Cannot inspect ACL: $path"
-        permissions=${permissions%% *}
-        [[ $permissions != *+* ]] || fail "Nontrivial configuration ACL: $path"
-        [[ $path != / ]] || break
-        path=${path%/*}; [[ -n $path ]] || path=/
+        _spdu_metadata=$(/usr/bin/stat -L -f '%u %Lp' "$_spdu_path") || fail "Cannot inspect configuration path: $_spdu_path"
+        read -r _spdu_uid _spdu_mode <<< "$_spdu_metadata"
+        [[ $_spdu_uid == 0 && $_spdu_mode =~ ^[0-7]+$ ]] || fail "Configuration path is not root-owned: $_spdu_path"
+        (( (8#$_spdu_mode & 022) == 0 )) || fail "Configuration path is writable by others: $_spdu_path"
+        _spdu_permissions=$(LC_ALL=C /bin/ls -ld "$_spdu_path") || fail "Cannot inspect ACL: $_spdu_path"
+        _spdu_permissions=${_spdu_permissions%% *}
+        [[ $_spdu_permissions != *+* ]] || fail "Nontrivial configuration ACL: $_spdu_path"
+        [[ $_spdu_path != / ]] || break
+        _spdu_path=${_spdu_path%/*}; [[ -n $_spdu_path ]] || _spdu_path=/
     done
+    configFiles+=("$_spdu_file")
     # shellcheck disable=SC1090
-    source "$file"
-    configFiles+=("$file")
+    source "$_spdu_file"
 }
 integer()
 {
@@ -74,7 +82,7 @@ commandWords()
     # Legacy command overrides may contain whitespace-separated arguments,
     # not shell quoting or executable shell text. Globbing stays disabled.
     local IFS=$' \t\n'
-    read -r -a words <<< "$1"
+    read -r -d '' -a words <<< "$1" || :
     [[ ${#words[@]} -gt 0 ]] || fail 'Empty command override'
     command -v "${words[0]}" >/dev/null || fail "Missing command: ${words[0]}"
 }
@@ -121,13 +129,17 @@ probeScheme=http; defaultProbePort=80
 : "${probePort=$defaultProbePort}"
 integer probePort 65535
 probeURI="$probeScheme://$apiName:$probePort/$probePath"
-commandWords "$curl"; curlCommand=("${words[@]}")
+commandWords "$curl"; curlCommand=("${words[0]}" --disable "${words[@]:1}")
 commandWords "$nsupdate"; updateCommand=("${words[@]}")
+commandWords "${sleep:-/bin/sleep}"; sleepCommand=("${words[@]}")
+for tool in /bin/timeout /bin/date /usr/bin/mktemp /bin/realpath /usr/bin/stat /bin/ls /bin/hostname; do
+    [[ -x $tool ]] || fail "Missing required tool: $tool"
+done
 if [[ ! -v targetIP ]]; then commandWords "$dig"; digCommand=("${words[@]}"); fi
 if [[ -v targetIP ]]; then [[ $targetIP =~ $iprx ]] || fail 'Invalid targetIP'; fi
 
 recipients=()
-IFS=$' \t\n' read -r -a recipients <<< "$mailTo"
+IFS=$' \t\n' read -r -d '' -a recipients <<< "$mailTo" || :
 if [[ ${#recipients[@]} -gt 0 ]]; then
     integer mailInterval 86400; decimal smtpTimeout; decimal smtpConnectTimeout
     for recipient in "${recipients[@]}"; do [[ $recipient =~ $mailrx ]] || fail 'Invalid mailTo address'; done
@@ -172,13 +184,13 @@ probe()
 {
     local attempts=$1 attempt result
     for ((attempt=1; attempt<=attempts; attempt++)); do
-        run "${curlCommand[@]}" --disable --noproxy '*' --globoff --resolve "$mapIP" \
+        run "${curlCommand[@]}" --noproxy '*' --globoff --resolve "$mapIP" \
             --ipv4 --fail --fail-early --max-time "$probeTimeout" \
             --write-out '%{http_code}' --output /dev/null "$probeURI" > "$runtime/http-code" 2>/dev/null
         result=$?
         if [[ $result == 0 && $(< "$runtime/http-code") == 200 ]]; then return 0; fi
         [[ $result != 0 ]] || result=22
-        if (( attempt < attempts )); then run /bin/sleep "$loopWait"; fi
+        if (( attempt < attempts )); then run "${sleepCommand[@]}" "$loopWait"; fi
     done
     return "$result"
 }
@@ -192,17 +204,19 @@ pool()
 }
 report()
 {
-    local status=DOWN action=removed recipient
+    local status=DOWN action=removed recipient toHeader
+    printf -v toHeader '%s, ' "${recipients[@]}"
+    toHeader=${toHeader%, }
     [[ $1 != 0 ]] || { status=UP; action=added; }
     {
-        printf 'From: "Robot SPDU on %s" <%s>\nTo: %s\n' "$myTag" "$mailFrom" "${recipients[*]}"
+        printf 'From: "Robot SPDU on %s" <%s>\nTo: %s\n' "$myTag" "$mailFrom" "$toHeader"
         printf 'Date: %s\nSubject: %s: Server %s is %s\n\n' "$(LC_TIME=C /bin/date -u '+%a, %d %b %Y %T %z')" "$status" "$targetTag" "$status"
         printf 'SPDU on %s: service %s/%s is %s (probe exit %s).\n' "$myTag" "$targetName" "$targetIP" "$status" "$probeCode"
         printf 'Previous state since %s; transition at %s.\n' "$previousChange" "$lastChange"
         printf 'Successfully %s %s in %s on %s.\n' "$action" "$targetIP" "$poolName" "$nameServer"
     } > "$runtime/mail"
-    local args=(--disable --noproxy '*' --silent --show-error --crlf
-        --connect-timeout "$smtpConnectTimeout" --max-time "$smtpTimeout" --mail-from "$mailFrom")
+    local args=(--noproxy '*' --silent --show-error --crlf
+        --connect-timeout "$smtpConnectTimeout" --max-time "$smtpTimeout" --mail-from "$mailFrom" --mail-rcpt-allowfails)
     [[ ! -f $runtime/smtp.conf ]] || args+=(--config "$runtime/smtp.conf")
     for recipient in "${recipients[@]}"; do args+=(--mail-rcpt "$recipient"); done
     [[ $smtpScheme != smtps ]] || args+=(--ssl-reqd)
@@ -222,20 +236,22 @@ while :; do
         lastChange=$(/bin/date -u '+%Y-%m-%d at %H:%M:%S UTC')
         [[ $state == -1 || ${#recipients[@]} == 0 ]] || pendingMail=yes
         state=$observed
-        printf 'spdu-%s: health %s (probe exit %s)\n' "$targetTag" "$state" "$probeCode"
+        label=UP; [[ $state == 0 ]] || label=DOWN
+        printf 'spdu-%s: health %s (probe exit %s, HTTP %s)\n' "$targetTag" "$label" "$probeCode" "$(< "$runtime/http-code")"
     fi
     if [[ $applied != "$state" ]] || (( SECONDS-lastSync >= dnsRefresh )); then
         if pool "$state"; then
             applied=$state; lastSync=$SECONDS
-            printf 'spdu-%s: DNS state %s applied\n' "$targetTag" "$state"
+            printf 'spdu-%s: DNS state %s applied\n' "$targetTag" "$label"
         else
             applied=-1
             printf 'spdu-%s: ERROR: DNS update failed; retry pending\n' "$targetTag" >&2
         fi
     fi
     if [[ $pendingMail == yes && $applied == "$state" ]] && (( SECONDS-lastMail >= mailInterval )); then
-        if ! report "$state"; then printf 'spdu-%s: ERROR: notification failed\n' "$targetTag" >&2; fi
-        lastMail=$SECONDS; pendingMail=no
+        if report "$state"; then pendingMail=no
+        else printf 'spdu-%s: ERROR: notification failed; retry pending\n' "$targetTag" >&2; fi
+        lastMail=$SECONDS
     fi
-    run /bin/sleep "$loopWait"
+    run "${sleepCommand[@]}" "$loopWait"
 done

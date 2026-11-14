@@ -12,6 +12,7 @@
 # spdu_restart="YES"            # optional supervisor restart
 # spdu_restart_delay="5"
 
+# shellcheck disable=SC1091
 . /etc/rc.subr
 # rc.subr consumes these variables.
 # shellcheck disable=SC2034
@@ -52,12 +53,11 @@ elif [ -n "$spdu_targets" ] && [ -n "${1:-}" ]; then
     done
     exit "$result"
 fi
-case "$spdu_name" in *[!A-Za-z0-9_.-]*) echo 'spdu: invalid target name' >&2; exit 1;; esac
-case "$spdu_user" in ''|*[!A-Za-z0-9_-]*) echo 'spdu: invalid service user' >&2; exit 1;; esac
-case "$spdu_restart_delay" in ''|*[!0-9]*) echo 'spdu: invalid restart delay' >&2; exit 1;; esac
-[ "${#spdu_restart_delay}" -le 5 ] && [ "$spdu_restart_delay" -ge 1 ] && [ "$spdu_restart_delay" -le 86400 ] || exit 1
-
 spdu_prestart() {
+case "$spdu_name" in *[!A-Za-z0-9_.-]*) echo 'spdu: invalid target name' >&2; return 1;; esac
+case "$spdu_user" in ''|*[!A-Za-z0-9_-]*) echo 'spdu: invalid service user' >&2; return 1;; esac
+case "$spdu_restart_delay" in ''|*[!0-9]*) echo 'spdu: invalid restart delay' >&2; return 1;; esac
+[ "${#spdu_restart_delay}" -le 5 ] && [ "$spdu_restart_delay" -ge 1 ] && [ "$spdu_restart_delay" -le 86400 ] || { echo 'spdu: restart delay must be 1..86400' >&2; return 1; }
     /usr/bin/install -d -o root -m 755 "$pidbase" || return 1
     /usr/bin/install -d -o "$spdu_user" -m 755 "${pidfile%/*}" || return 1
     if [ -n "$spdu_name" ]; then set -- --check "$spdu_name"; else set -- --check; fi
@@ -71,8 +71,9 @@ command_args="-S -f -T spdu${target:+-$target} -P $pidfile"
 if checkyesno spdu_restart; then command_args="$command_args -r -R $spdu_restart_delay"; fi
 command_args="$command_args $dscript $spdu_name"
 
+set +f
 if [ -n "$target" ]; then
-    output=$(/usr/bin/mktemp /tmp/spdu-rc.XXXXXXXX) || exit 1
+    output=$(/usr/bin/mktemp /tmp/spdu-rc.XXXXXXXX) || { echo 'spdu: cannot create rc output file' >&2; exit 1; }
     trap 'rm -f "$output"' EXIT
     trap 'exit 130' INT TERM HUP
     run_rc_command "${1:-}" > "$output" 2>&1

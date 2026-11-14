@@ -203,7 +203,7 @@ spdu_targets="beta delta"
 ```
 You can even use a server name that is different from the target name, like spdu_delta_name="delta.someotherdomain.tld", which might be useful if you have to use FQDNs for names (it's actually not a very goot idea to have a target name long and with dots in it...), whatever is in the specific spdu_target_name (wich defaults to "target") will be passed to spdu.
 
-Finally, you still should not run stuff as root, you can tell rc to run spdu as some unpriviledged user (I decided to "reuse" knot, which is the user runnning the DNS), just add to rc.conf: `spdu_user="knot"`. Take note that this user must be allowed to read the spdu configuration file(s) and write the directory /var/run/spdu: `chown knot:knot /var/run/spdu; chmod 755 /var/run/spdu; chmod 640 /usr/local/etc/spdu.conf /usr/local/etc/spdu/*`
+Finally, you still should not run stuff as root, you can tell rc to run spdu as some unpriviledged user (I decided to "reuse" knot, which is the user runnning the DNS), just add to rc.conf: `spdu_user="knot"`. Take note that this user must be allowed to read the spdu configuration file(s) and write the directory /var/run/spdu: `chown root:wheel /var/run/spdu; chmod 755 /var/run/spdu; chmod 640 /usr/local/etc/spdu.conf /usr/local/etc/spdu/*`
 
 ### Set up SSL certificates
 
@@ -353,3 +353,7 @@ use appropriate TSIG authentication or a controlled dedicated loopback setup.
 HAL's ip4=inherit model is separately tested and does not allocate a restricted
 primary jail address. Public DNS and internal resolver Knot instances must bind
 different endpoints so updates reach the instance actually serving the pool.
+
+Persistent DNS application failure is reported to stderr/syslog; transition mail
+waits for successful DNS application. Failed mail is retried after mailInterval,
+coalescing to the most recent state rather than retaining a notification queue.
