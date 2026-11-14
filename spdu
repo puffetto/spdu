@@ -253,7 +253,8 @@ while :; do
     if [[ $pendingMail == yes && $applied == "$state" ]] && (( SECONDS-lastMail >= mailInterval )); then
         if report "$state"; then pendingMail=no
         else printf 'spdu-%s: ERROR: notification failed; retry pending\n' "$targetTag" >&2; fi
-        lastMail=$SECONDS
+        # Round the completion time up: SECONDS has whole-second precision.
+        lastMail=$((SECONDS+1))
     fi
     run "${sleepCommand[@]}" "$loopWait"
 done
