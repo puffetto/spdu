@@ -15,7 +15,7 @@ cleanup()
     trap - EXIT
     if [[ -n $child ]]; then
         kill -TERM "$child" 2>/dev/null
-        for ((_spdu_wait=0; _spdu_wait<10; _spdu_wait++)); do
+        for ((_spdu_wait=0; _spdu_wait<15; _spdu_wait++)); do
             kill -0 "$child" 2>/dev/null || break
             /bin/sleep 0.1
         done
@@ -132,7 +132,9 @@ probeURI="$probeScheme://$apiName:$probePort/$probePath"
 commandWords "$curl"; curlCommand=("${words[0]}" --disable "${words[@]:1}")
 commandWords "$nsupdate"; updateCommand=("${words[@]}")
 commandWords "${sleep:-/bin/sleep}"; sleepCommand=("${words[@]}")
-for tool in /bin/timeout /bin/date /usr/bin/mktemp /bin/realpath /usr/bin/stat /bin/ls /bin/hostname; do
+timeoutCommand=/bin/timeout
+[[ -x $timeoutCommand ]] || timeoutCommand=/usr/bin/timeout
+for tool in "$timeoutCommand" /bin/date /usr/bin/mktemp /bin/realpath /usr/bin/stat /bin/ls /bin/hostname; do
     [[ -x $tool ]] || fail "Missing required tool: $tool"
 done
 if [[ ! -v targetIP ]]; then commandWords "$dig"; digCommand=("${words[@]}"); fi
@@ -200,7 +202,7 @@ pool()
     [[ $1 == 0 ]] || action=delete
     printf 'server %s\nzone %s\nupdate %s %s %s A %s\nsend\n' \
         "$nameServer" "$poolZone" "$action" "$poolName" "$nameTTL" "$targetIP" > "$runtime/update"
-    run /bin/timeout -k 1 "$dnsTimeout" "${updateCommand[@]}" -v -t "$dnsTimeout" < "$runtime/update"
+    run "$timeoutCommand" -k 1 "$dnsTimeout" "${updateCommand[@]}" -v -t "$dnsTimeout" < "$runtime/update"
 }
 report()
 {

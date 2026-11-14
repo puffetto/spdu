@@ -301,6 +301,9 @@ Really: noone besides you and your staff should have a shell acccess on producti
 
 ## Reliable updates and service control
 
+SPDU targets FreeBSD with rc.subr/daemon (native qualification: FreeBSD15.1).
+It accepts timeout(1) in /bin or /usr/bin for older FreeBSD layouts; those
+releases are not qualified by the current native run.
 SPDU requires Bash 4.2 or later at `/bin/bash`; on FreeBSD this can be a symlink
 to the installed `/usr/local/bin/bash` or a supplied static Bash. Do not use an
 `env bash` shebang that depends on the interactive service PATH during boot.
