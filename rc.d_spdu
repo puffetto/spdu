@@ -1,92 +1,83 @@
 #! /bin/sh
-
-# $FreeBSD$
-#
-# spdu startup script
-#
+# FreeBSD SPDU service: one supervisor per configured target.
+# Inspired by the FreeBSD fcgiwrap rc script. Author: Andrea Cocito.
 # PROVIDE: spdu
-# REQUIRE: LOGIN
+# REQUIRE: LOGIN knot
 # KEYWORD: shutdown
 #
-# Add the following to /etc/rc.conf[.local] to enable this service
-#
 # spdu_enable="YES"
-# spdu_name="servername"
-#
-# spdu rc.d script supports multiple targets (a-la rc.d/nginx)
-# When targets are specified, the non-target specific parameters become defaults,
-# except for spdu_target_name which will default to "target"
-#
-# This is inspired by and largely copied from
-# https://svnweb.freebsd.org/ports/head/www/fcgiwrap/files/fcgiwrap.in?revision=307542&view=co
-# 
-# Example:
-#
-# spdu_enable="YES"
-# spdu_targets="myserver myotherserver"
+# spdu_targets="beta delta"     # shell-safe tags; optional
+# spdu_beta_name="beta.example.org"
+# spdu_user="root"
+# spdu_restart="YES"            # optional supervisor restart
+# spdu_restart_delay="5"
 
 . /etc/rc.subr
-
-name="spdu"
+# rc.subr consumes these variables.
+# shellcheck disable=SC2034
+name=spdu
+# shellcheck disable=SC2034
 rcvar=spdu_enable
-
-
-pidprefix="/var/run/spdu/spdu"
-pidfile="${pidprefix}.pid"  # May be a different path if targets are in use
-target=""
-
-dscript="/usr/local/sbin/${name}"
-command="/usr/sbin/daemon"
-procname="${command}"
-
-load_rc_config $name
-
-# These are just the defaults, they might get overriden for a specific target.
-spdu_enable=${spdu_enable:-"NO"}
-spdu_targets=${spdu_targets:-""}
-spdu_name=${spdu_name:-""}
-spdu_user=${spdu_user:-"root"}
-
-# This handles target specific vars
-if [ -n "$2" ]; then
-	# WARNING: This turns out to be O(2) on the number of targets,
-	# DO NOT use this rc script for... dozens of targets!
-	for tag in ${spdu_targets}; do
-		if [ x"$tag" = x"$2" ]; then
-			target="$tag"
-		fi
-	done
-	if [ -n "${target}" ]; then
-		pidfile="${pidprefix}.${target}.pid"
-		eval spdu_enable="\${spdu_${target}_enable:-${spdu_enable}}"
-		eval spdu_name="\${spdu_${target}_name:-${target}}"
-		eval spdu_user="\${spdu_${target}_user:-${spdu_user}}"
-	else
-		echo "$0: extra argument ignored because it was not in spdu_targets"
-	fi
-else
-	if [ -n "${spdu_targets}" -a -n "$1" ]; then
-		for target in ${spdu_targets}; do
-			/usr/local/etc/rc.d/spdu $1 ${target}
-			retcode="$?"
-			if [ "0${retcode}" -ne 0 ]; then
-				failed="${target} (${retcode}) ${failed:-}"
-			else
-				success="${target} ${success:-}"
-			fi
-		done
-		# It exits so that non-target rc.d is not started when there are targets.
-		exit 0
-	fi
+command=/usr/sbin/daemon
+# shellcheck disable=SC2034
+procname=$command
+dscript=/usr/local/sbin/spdu
+pidbase=/var/run/spdu
+pidfile=$pidbase/default/spdu.pid
+target=
+load_rc_config "$name"
+: "${spdu_enable:=NO}" "${spdu_targets:=}" "${spdu_name:=}" "${spdu_user:=root}"
+: "${spdu_restart:=NO}" "${spdu_restart_delay:=5}"
+set -f
+valid_tag() {
+    case "$1" in ''|*[!A-Za-z0-9_]*|[0-9]*) return 1;; esac
+}
+for tag in $spdu_targets; do
+    valid_tag "$tag" || { echo 'spdu: invalid target tag' >&2; exit 1; }
+done
+if [ "$#" -gt 2 ]; then echo 'Usage: spdu action [target]' >&2; exit 1; fi
+if [ -n "${2:-}" ]; then
+    for tag in $spdu_targets; do [ "$tag" != "$2" ] || target=$tag; done
+    [ -n "$target" ] || { echo 'spdu: unknown target' >&2; exit 1; }
+    pidfile=$pidbase/$target/spdu.pid
+    eval spdu_enable="\${spdu_${target}_enable:-\$spdu_enable}"
+    eval spdu_name="\${spdu_${target}_name:-\$target}"
+    eval spdu_user="\${spdu_${target}_user:-\$spdu_user}"
+    eval spdu_restart="\${spdu_${target}_restart:-\$spdu_restart}"
+    eval spdu_restart_delay="\${spdu_${target}_restart_delay:-\$spdu_restart_delay}"
+elif [ -n "$spdu_targets" ] && [ -n "${1:-}" ]; then
+    result=0
+    for target in $spdu_targets; do
+        /usr/local/etc/rc.d/spdu "$1" "$target" || result=1
+    done
+    exit "$result"
 fi
+case "$spdu_name" in *[!A-Za-z0-9_.-]*) echo 'spdu: invalid target name' >&2; exit 1;; esac
+case "$spdu_user" in ''|*[!A-Za-z0-9_-]*) echo 'spdu: invalid service user' >&2; exit 1;; esac
+case "$spdu_restart_delay" in ''|*[!0-9]*) echo 'spdu: invalid restart delay' >&2; exit 1;; esac
+[ "${#spdu_restart_delay}" -le 5 ] && [ "$spdu_restart_delay" -ge 1 ] && [ "$spdu_restart_delay" -le 86400 ] || exit 1
 
-command_args="-S -f -P ${pidfile} ${dscript} ${spdu_name}"
+spdu_prestart() {
+    /usr/bin/install -d -o root -m 755 "$pidbase" || return 1
+    /usr/bin/install -d -o "$spdu_user" -m 755 "${pidfile%/*}" || return 1
+    if [ -n "$spdu_name" ]; then set -- --check "$spdu_name"; else set -- --check; fi
+    # Check as the actual service identity, including its read permissions.
+    if [ "$spdu_user" = root ]; then "$dscript" "$@"
+    else /usr/bin/su -m "$spdu_user" -c "$dscript $*"; fi
+}
+# shellcheck disable=SC2034
+start_precmd=spdu_prestart
+command_args="-S -f -T spdu${target:+-$target} -P $pidfile"
+if checkyesno spdu_restart; then command_args="$command_args -r -R $spdu_restart_delay"; fi
+command_args="$command_args $dscript $spdu_name"
 
-if [ -n "${target}" ]
-then
-	run_rc_command "$1" | /usr/bin/sed -e "s_^_[target=${target}] _"
-else
-	run_rc_command "$1"
+if [ -n "$target" ]; then
+    output=$(/usr/bin/mktemp /tmp/spdu-rc.XXXXXXXX) || exit 1
+    trap 'rm -f "$output"' EXIT
+    trap 'exit 130' INT TERM HUP
+    run_rc_command "${1:-}" > "$output" 2>&1
+    result=$?
+    /usr/bin/sed "s_^_[target=$target] _" "$output"
+    exit "$result"
 fi
-
-
+run_rc_command "${1:-}"

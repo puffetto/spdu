@@ -40,7 +40,7 @@ I will assume some things in what follows, your setup might be different but thi
 5. The "static" part of the DNS is taken care elsewhere (either by some ISP or by your redundant setup with authoritative servers on different networks... isn't it?).
 6. I have two sites answering the requests, you could have more and it is pretty simple to take that in count, but the point here is not having 100 nodes for load handling, is having more than one site for redundancy, maybe 3 makes still sense, four is definitively overshooting.
 7. I am handling reasonable requests in a reasonable world. Up to 5-10 seconds of unavailability to fail over from one site to the other is considered reasonable: automated processes should have retry/timeout policies and humans can deal with it: even Facebook sometimes freezes, if reloading the page after a few seconds work the users lives with it and the "failure" is not even noticed in the records.
-8. I assume that youir machines/nodes can be reached, if your hosting site has firewall policies in place ensure that, at least, you get inbound TCP connections on ports 80, 443 and 42, you can connect to external TCP (including smtp, submission, etc...) and that you get UPD requests on port 42 and can reply. All this is far from obvious, expecially on Hetzner.
+8. I assume that youir machines/nodes can be reached, if your hosting site has firewall policies in place ensure that, at least, you get inbound TCP connections on ports 80, 443 and 42, you can connect to external TCP (including smtp, submission, etc...) and that you get UPD requests on port 53 and can reply. All this is far from obvious, expecially on Hetzner.
 
 ### Prerequisites.
 
@@ -121,7 +121,7 @@ To make the long story short: install haproxy and enable it, create it's user an
 
 In normal operation we want requests for api.domain.tld to land on SOME machine/site, in our example either alpha.domain.tld or beta.domain.tld; if either fails (that is: it becomes unreachable), then we want all the requests to land on the reachable one(s).
 
-I have api.domain.tld pointing as CNAME to api.pool.domain.tld, note that therefore YOU CANNOT have something else pointing as a CNAME to api.domain.tld on its behalf; then the zone pool.domain.tld is delegated to two nameservers which are... the nodes themselves.
+I have api.domain.tld pointing as CNAME to api.pool.domain.tld, CNAME chains are allowed, but avoid unnecessary indirection and never create loops; then the zone pool.domain.tld is delegated to two nameservers which are... the nodes themselves.
 
 At this point when a client asks for api.domaind.tld it becomes api.pool.domain.tld and the DNS query goes to alpha.domain.tld and beta.domain.tld, now say I am alpha and someone out there asks me for api.pool.domain.tld:
 1. I should always respond with my own IP, if the client could reach the DNS running here it can also reach the service (and we are working only on reachability/site redundancy, services which go down are expected to be handled by other means)
@@ -138,13 +138,18 @@ pool.domain.tld. 10 NS beta.domain.tld.
 
 Then on each node install knot (portinstall knot3); edit the pertinent files from this repository and place them into /usr/local/etc/knot/knot.conf and /var/db/knot/pool.domain.tld.zone; add a line in /etc.rc.conf stating knot_enable="YES" and go with "service knot start".
 
-Take note that the last field in the SOA record into pool.domain.tld.zone is ONLY used as "negative response TTL", meaning that should a server respond that there is no record for the given request this answer will be cached for this number of seconds (this happens, in example, for the AAAA request, as we do not have IPv6 addresses in this example), so it should essentially be the same as the TTL in the A records (in my case 5 or 10 seconds).
+The last SOA field is MINIMUM, used for negative caching. A negative answer's
+TTL is the smaller of SOA.MINIMUM and the SOA record's own TTL (RFC 2308 sections
+3-5). EXPIRE is a separate field for secondary-server expiry, not negative caching.
+Keep the negative TTL short enough for the intended service-discovery behavior.
 
-Everything else in the SOA recordo is IGNORED in our setup, as we do not use DNS zone transfers, it MUST be ignored as nothing in the RFCs allow any use of that information. 
-
-Side note: Yes: you can have more than one "master" server for a zone; DNS itself, in the name resolution process, does not even have an idea about what a "master" and a "slave" server is; there are only "authoritative" and "cache" servers; all our nodes are "authoritative servers", the resolution protocol is politically correct, stuff like "serial", "mname", "rname", "refresh", "retry" and "expire" MUST be ignored by clients, except the saide use for "expire" (time to cache ythe negative "No records" reply"); the field "aname" *might* be usde by an human to contact the responsible for the doiman but... would you expect a reply? :D
-
-That's it: you CAN have more than an "authoritative" server for a zone, as the concept of "authoritaive" applies only to DNA zone transfers (which you are not obliged to use, and in fact we do NOT use) and all the content of the "SOA" record is bullshit except the last field ("[negative] expire").
+All these servers are authoritative for the pool zone. Primary/secondary
+relationships and SOA refresh/retry/expiry govern replication; this setup does
+not use zone transfers. Authority also applies to normal client answers; it is
+not limited to transfers. Keep valid SOA metadata even with independent primaries.
+See [RFC 1034](https://www.rfc-editor.org/rfc/rfc1034.html),
+[RFC 2308](https://www.rfc-editor.org/rfc/rfc2308.html) and
+[RFC 9499](https://www.rfc-editor.org/rfc/rfc9499.html).
 
 If everything is ok on any machine of the world you will have this working:
 ```
@@ -189,7 +194,7 @@ If you want spdu to send you email notifications, besides placing your address(e
 
 That's it. You can have alpha monitor beta and update its own DNS by simply running "spdu beta" there, on beta you will have to run "spdu alpha"; in this way it will run in foreground and show on the terminal what happens.
 
-As said the kid comes with its nice rc.d script, just place it in /usr/local/etc/rc.d/spdu and it will run spdu under the control of /usr/sbin/daemon, sending the output to syslog. All is needed is a spdu_enable="YES" and a spdu_name="alpha" (or "beta") in /etc/rc.conf; then create the directory /var/run/spdu. I do not remember if I already said that systemd sucks. Did I?
+As said the kid comes with its nice rc.d script, just place it in /usr/local/etc/rc.d/spdu and it will run spdu under the control of /usr/sbin/daemon, sending the output to syslog. All is needed is a spdu_enable="YES" and a spdu_name="alpha" (or "beta") in /etc/rc.conf; The rc script creates its PID directories and sends logs with the spdu tag. I do not remember if I already said that systemd sucks. Did I?
 
 You might need to monitor more than one server, in example if you have three nodes named alpha, beta and delta you will want spdu on alpha monitor both beta and delta, this is the way in rc.conf:
 ```
@@ -198,7 +203,7 @@ spdu_targets="beta delta"
 ```
 You can even use a server name that is different from the target name, like spdu_delta_name="delta.someotherdomain.tld", which might be useful if you have to use FQDNs for names (it's actually not a very goot idea to have a target name long and with dots in it...), whatever is in the specific spdu_target_name (wich defaults to "target") will be passed to spdu.
 
-Finally, you still should not run stuff as root, you can tell rc to run spdu as some unpriviledged user (I decided to "reuse" knot, which is the user runnning the DNS), just add to rc.conf: `spdu_user="knot"`. Take note that this user must be allowed to read the spdu configuration file(s) and write the directory /var/run/spdu: `chown knot:knot /var/run/spdu; chmod 755 /var/run/spdu; chmod 644 /usr/local/etc/spdu.conf /usr/local/etc/sodu/*`
+Finally, you still should not run stuff as root, you can tell rc to run spdu as some unpriviledged user (I decided to "reuse" knot, which is the user runnning the DNS), just add to rc.conf: `spdu_user="knot"`. Take note that this user must be allowed to read the spdu configuration file(s) and write the directory /var/run/spdu: `chown knot:knot /var/run/spdu; chmod 755 /var/run/spdu; chmod 640 /usr/local/etc/spdu.conf /usr/local/etc/spdu/*`
 
 ### Set up SSL certificates
 
@@ -293,3 +298,58 @@ Well, if you do then feel free to have fun setting up authentication for a scrip
 
 Really: noone besides you and your staff should have a shell acccess on production servers. Period.
 
+
+## Reliable updates and service control
+
+SPDU requires Bash 4.2 or later at `/bin/bash`; on FreeBSD this can be a symlink
+to the installed `/usr/local/bin/bash` or a supplied static Bash. Do not use an
+`env bash` shebang that depends on the interactive service PATH during boot.
+`spdu --check [target]` validates configuration as the calling user without
+resolving target A records or sending network traffic. The rc precheck runs this
+as `spdu_user`, so configuration unreadable by that identity fails before start.
+
+Configuration files must be root-owned regular files with no group/other write
+permission or nontrivial ACL. Their resolved ancestors must have the same trust
+properties. Existing unsafe/unreadable files abort startup; absent optional files
+are allowed. Secret-bearing configuration should be mode0600 root or mode0640
+root with the service user's authorized group. With SMTP credentials no sourced
+configuration may be world-readable. Targets must not contain slashes/traversal.
+
+rc target tags use letters, digits and underscores, with no leading digit. Use
+`spdu_beta_name="beta-site.example.org"` for a hostname containing hyphens/dots.
+Unknown targets fail. PID files are `/var/run/spdu/<tag>/spdu.pid` (or `default`
+for an untargeted service), with separate user-owned instance directories.
+Per-target enable/name/user overrides remain supported. `spdu_restart="YES"`
+enables supervision with `spdu_restart_delay="5"` (1..86400 seconds); these also
+support per-target overrides. Stop the old service before replacing an rc script
+that used a different PID layout. `service spdu status` reports aggregate failures.
+Knot starts before SPDU and stops after it; DNS failure at startup is still retried.
+
+A probe must return HTTP200. Redirects are not followed or accepted as health,
+TLS validation remains enabled, and proxies are disabled. Retries are separated
+by loopWait. At defaults, five timeout failures take up to23s within a probe;
+outer work can extend detection, so tune probeRetries/probeTimeout/loopWait for
+the service. Already-DOWN peers are checked once per cycle for recovery. Curl
+failure codes remain diagnostic; changing error codes alone is not a transition.
+
+DNS updates are applied before notifications and failed updates retry without
+requiring a new health transition. dnsRefresh periodically restores the desired
+state after a zone reload/reset. **Stop SPDU before manually editing the pool**:
+while running, it reconciles manual edits away. Stop retains the last RRset and
+terminates its active child; an interrupted update is reconciled on next start.
+
+An empty mailTo disables SMTP completely. Connect/transaction bounds prevent
+mail stalls from blocking monitoring indefinitely. Mail uses CRLF, credentials
+stay in a private temporary curl configuration, and rapid transitions coalesce
+to the latest state until mailInterval permits another attempt. Temporary files
+are removed on normal exit and termination. See spdu.conf for the bounded settings.
+
+The localhost ACL is not per-jail authentication: all processes sharing a network
+stack can originate loopback updates. Limit updates to the intended pool A owner,
+as in the example ACL. A restricted non-VNET jail may rewrite loopback to its
+primary address; inspect the observed source and serving Knot instance before
+choosing its ACL. Do not widen an unauthenticated ACL to a routable address;
+use appropriate TSIG authentication or a controlled dedicated loopback setup.
+HAL's ip4=inherit model is separately tested and does not allocate a restricted
+primary jail address. Public DNS and internal resolver Knot instances must bind
+different endpoints so updates reach the instance actually serving the pool.
