@@ -203,7 +203,7 @@ spdu_targets="beta delta"
 ```
 You can even use a server name that is different from the target name, like spdu_delta_name="delta.someotherdomain.tld", which might be useful if you have to use FQDNs for names (it's actually not a very goot idea to have a target name long and with dots in it...), whatever is in the specific spdu_target_name (wich defaults to "target") will be passed to spdu.
 
-Finally, you still should not run stuff as root, you can tell rc to run spdu as some unpriviledged user (I decided to "reuse" knot, which is the user runnning the DNS), just add to rc.conf: `spdu_user="knot"`. Take note that this user must be allowed to read the spdu configuration file(s) ; the rc script creates the root-owned PID base and a writable per-target directory. Use `chown root:knot /usr/local/etc/spdu.conf /usr/local/etc/spdu/*; chmod 640 /usr/local/etc/spdu.conf /usr/local/etc/spdu/*`
+Finally, you still should not run stuff as root, you can tell rc to run spdu as some unpriviledged user (I decided to "reuse" knot, which is the user runnning the DNS), just add to rc.conf: `spdu_user="knot"`. Take note that this user must be allowed to read the spdu configuration file(s); the rc script creates the root-owned PID base and a writable per-target directory. Use `chown root:knot /usr/local/etc/spdu.conf /usr/local/etc/spdu/*; chmod 640 /usr/local/etc/spdu.conf /usr/local/etc/spdu/*`
 
 ### Set up SSL certificates
 
