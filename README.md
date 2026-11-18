@@ -301,6 +301,51 @@ Really: noone besides you and your staff should have a shell acccess on producti
 
 ## Reliable updates and service control
 
+### Numeric health and grouped pools
+
+Header detection is automatic. A successful HTTP200 reply may include
+`X-SPDU-Health`, an unsigned decimal integer from0 through4294967295. Zero
+always excludes that target. Positive values compare exactly, including values
+above signed32-bit range. Missing, invalid or out-of-range single values retain
+legacy HTTP200 membership; response sentences are not interpreted.
+
+Repeated or comma-joined health values must agree numerically. Conflicting or
+partially invalid duplicates are protocol errors: retry, retain the previous
+accepted observation while retrying, and exclude after retries are exhausted.
+Later coherent replies replace that observation immediately, independent of
+which physical node answered. Interim responses and trailers are not the final
+HTTP health header block.
+
+By default each process still controls its single target address. To compare
+several targets, configure one process with an explicit inventory, for example:
+
+```sh
+poolTargets="alpha.example.org=192.0.2.10 beta.example.org=198.51.100.20"
+```
+
+Each pair supplies the HTTPS identity and fixed IPv4 address; do not also set
+`targetIP`. Scheme, port, path, timeouts and retries are shared. Names and IPs
+must be unique. Never group independent existing workers merely because they
+share a pool name. A grouped process owns the complete pool A RRset: stop all
+other writers for that owner before enabling it.
+
+After excluding failed and zero-score targets, publish every exact maximum
+positive score. If any remaining target is legacy/unranked, publish all remaining
+successful targets instead; explicit zero remains excluded. Empty eligibility
+removes all pool A values. Each replacement is one DNS update transaction;
+failed writes retry even without a score change, and periodic reconciliation
+repairs external changes. Startup leaves persisted DNS alone until the first
+bounded observation round completes; stopping retains the last applied set.
+
+Targets are probed serially. A full round can take the sum of each target's
+retry budget plus DNS/notification work and the loop pause; loopWait is not a
+wall-clock probe-period guarantee. Already excluded targets receive one attempt
+per round. Grouped transition notifications describe the selected address set.
+Existing singleton notification and service interfaces remain supported.
+
+Run `tests/health-header.sh` for parser checks; service/DNS/network integration
+must also be qualified on native FreeBSD before deployment.
+
 SPDU targets FreeBSD with rc.subr/daemon (native qualification: FreeBSD15.1).
 It accepts timeout(1) in /bin or /usr/bin for older FreeBSD layouts; those
 releases are not qualified by the current native run.
