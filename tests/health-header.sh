@@ -17,6 +17,7 @@ check() {
     else [ "$actual" = 0 ] && [ "$(cat "$runtime/health-score")" = "$expected" ]; fi
 }
 check legacy 'Content-Length: 0'
+check error "$(printf 'X-SPDU-Health:\r\nX-SPDU-Health: 5')"
 check 0 'X-SPDU-Health: 0'
 check 1 'X-SPDU-Health: 00000001'
 check 2000000001 'x-spdu-health: 2000000001'
@@ -37,5 +38,5 @@ check error "$(printf 'X-SPDU-Health: 1\r\nX-SPDU-Health: 2')"
 printf 'HTTP/1.1 103 Early Hints\r\nX-SPDU-Health: 0\r\n\r\nHTTP/1.1 200 OK\r\nX-SPDU-Health: 7\r\n\r\nX-SPDU-Health: 0\r\n' > "$runtime/http-headers"
 healthHeader
 [ "$(cat "$runtime/health-score")" = 7 ]
-echo 'PASS SPDU actual header parser: 19 uint32/legacy/coherent/conflicting/OWS/interim/trailer cases'
+echo 'PASS SPDU actual header parser: 20 uint32/legacy/coherent/conflicting/OWS/interim/trailer cases'
 # END File: tests/health-header.sh

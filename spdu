@@ -216,6 +216,7 @@ healthHeader()
         previous=0; colon=index($0, ":"); if(!colon) next;
         if(tolower(substr($0,1,colon-1))!="x-spdu-health") next;
         fields=split(substr($0,colon+1), parts, ",");
+        if(!fields) values[++n]="";
         for(i=1;i<=fields;i++) values[++n]=parts[i];
         previous=1
       }
